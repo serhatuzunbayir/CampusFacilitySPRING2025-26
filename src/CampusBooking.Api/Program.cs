@@ -2,6 +2,7 @@ using System.Text;
 using CampusBooking.Api.Data;
 using CampusBooking.Api.Data.Entities;
 using CampusBooking.Api.Services;
+using CampusBooking.Shared;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -47,6 +48,8 @@ builder.Services
 
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddSingleton<NotificationService>();
+builder.Services.AddScoped<NotificationWriter>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

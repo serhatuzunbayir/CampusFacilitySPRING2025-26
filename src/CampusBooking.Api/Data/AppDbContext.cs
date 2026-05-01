@@ -13,6 +13,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<MaintenanceIssue> MaintenanceIssues => Set<MaintenanceIssue>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -75,6 +76,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.AssigneeId);
+        });
+
+        builder.Entity<Notification>(e =>
+        {
+            e.HasOne(x => x.RecipientUser)
+                .WithMany()
+                .HasForeignKey(x => x.RecipientUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(x => new { x.RecipientUserId, x.IsRead });
         });
 
         builder.Entity<AuditLog>(e =>

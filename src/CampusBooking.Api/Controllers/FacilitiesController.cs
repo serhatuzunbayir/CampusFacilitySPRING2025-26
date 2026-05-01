@@ -7,6 +7,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CampusBooking.Api.Controllers;
 
+/// <summary>
+/// CRUD operations for individual facilities (rooms, labs, etc.) (FR2).
+/// GET endpoints support an optional includeInactive flag so the desktop management
+/// screen can show deactivated facilities while the booking search only sees active ones.
+/// Write operations validate that the referenced FacilityTypeId exists before saving.
+/// </summary>
 [ApiController]
 [Route("api/facilities")]
 [Authorize]
