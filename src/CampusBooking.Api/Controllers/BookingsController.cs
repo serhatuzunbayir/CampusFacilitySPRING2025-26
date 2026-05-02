@@ -146,6 +146,36 @@ public class BookingsController : ControllerBase
         return CreatedAtAction(nameof(GetMyBookings), responses);
     }
 
+    // all bookings with optional filters — manager dashboard
+    [HttpGet]
+    [Authorize(Roles = "FacilityManager")]
+    public async Task<ActionResult<List<BookingResponse>>> GetAll(
+        [FromQuery] int? facilityId = null,
+        [FromQuery] DateOnly? date = null,
+        [FromQuery] BookingStatus? status = null)
+    {
+        var query = _db.Bookings
+            .Include(b => b.Facility)
+            .Include(b => b.User)
+            .AsQueryable();
+
+        if (facilityId.HasValue)
+            query = query.Where(b => b.FacilityId == facilityId.Value);
+
+        if (date.HasValue)
+            query = query.Where(b => b.Date == date.Value);
+
+        if (status.HasValue)
+            query = query.Where(b => b.Status == status.Value);
+
+        var bookings = await query
+            .OrderBy(b => b.Date).ThenBy(b => b.TimeSlot)
+            .Select(b => ToResponse(b))
+            .ToListAsync();
+
+        return Ok(bookings);
+    }
+
     // list caller's own bookings
     [HttpGet("mine")]
     public async Task<ActionResult<List<BookingResponse>>> GetMyBookings()
@@ -235,7 +265,9 @@ public class BookingsController : ControllerBase
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-        var booking = await _db.Bookings.FindAsync(id);
+        var booking = await _db.Bookings
+            .Include(b => b.Facility)
+            .FirstOrDefaultAsync(b => b.Id == id);
         if (booking is null) return NotFound();
         if (booking.UserId != userId)
             return Forbid();
@@ -243,7 +275,7 @@ public class BookingsController : ControllerBase
         if (!IsWithinCancellationWindow(booking))
             return BadRequest(new { message = "Cancellations must be made at least 2 hours before the slot starts." });
 
-        var facilityName = booking.Facility?.Name ?? booking.FacilityId.ToString();
+        var facilityName = booking.Facility.Name;
         var bookingDate = booking.Date;
 
         _db.Bookings.Remove(booking);

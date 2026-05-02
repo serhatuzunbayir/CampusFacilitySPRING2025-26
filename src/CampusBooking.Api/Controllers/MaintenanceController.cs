@@ -110,6 +110,37 @@ public class MaintenanceController : ControllerBase
         return Ok(issues.Select(ToResponse).ToList());
     }
 
+    [HttpGet("{id}/photo")]
+    public async Task<IActionResult> GetPhoto(int id)
+    {
+        var issue = await _db.MaintenanceIssues.FindAsync(id);
+        if (issue is null) return NotFound();
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        if (!User.IsInRole("FacilityManager") &&
+            issue.ReporterId != userId &&
+            issue.AssigneeId != userId)
+            return Forbid();
+
+        if (string.IsNullOrEmpty(issue.PhotoPath))
+            return NotFound(new { message = "This issue has no photo." });
+
+        var fullPath = Path.Combine(_env.ContentRootPath, issue.PhotoPath);
+        if (!System.IO.File.Exists(fullPath))
+            return NotFound(new { message = "Photo file not found on server." });
+
+        var contentType = Path.GetExtension(fullPath).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png"            => "image/png",
+            ".gif"            => "image/gif",
+            ".webp"           => "image/webp",
+            _                 => "application/octet-stream"
+        };
+
+        return PhysicalFile(fullPath, contentType);
+    }
+
     [HttpGet("{id}")]
     public async Task<ActionResult<MaintenanceIssueResponse>> GetById(int id)
     {

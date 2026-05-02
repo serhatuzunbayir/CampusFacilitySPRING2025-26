@@ -1,6 +1,8 @@
+using System.Security.Claims;
 using CampusBooking.Api.Data.Entities;
 using CampusBooking.Api.Dtos.Auth;
 using CampusBooking.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
@@ -55,5 +57,20 @@ public class AuthController : ControllerBase
             DisplayName = user.DisplayName,
             Role = roles.FirstOrDefault() ?? string.Empty
         });
+    }
+
+    [HttpPut("password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null) return NotFound();
+
+        var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+            return BadRequest(new { message = string.Join("; ", result.Errors.Select(e => e.Description)) });
+
+        return NoContent();
     }
 }
