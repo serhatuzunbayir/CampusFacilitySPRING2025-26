@@ -69,11 +69,11 @@ public class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         Font          = new Font("Segoe UI", 10f);
 
-        // ── Status strip (bottom bar) ─────────────────────────────────────────
-        _statusStrip  = new StatusStrip();
+        // ── Status strip (built here, added to Controls AFTER _tabs so its
+        //    Dock=Bottom is processed first and it gets a reserved bottom strip) ──
+        _statusStrip   = new StatusStrip();
         _lblStatusUser = new ToolStripLabel($"Logged in as: {SessionState.DisplayName}  |  Role: {SessionState.Role}");
         _statusStrip.Items.Add(_lblStatusUser);
-        Controls.Add(_statusStrip);
 
         // ── Tab control ───────────────────────────────────────────────────────
         _tabs = new TabControl { Dock = DockStyle.Fill };
@@ -150,7 +150,12 @@ public class MainForm : Form
         _tabs.TabPages.Add(_tabFacilities);
         _tabs.TabPages.Add(_tabBookings);
         _tabs.TabPages.Add(_tabNotifications);
+
+        // Important: add _tabs first, then _statusStrip. WinForms docks in
+        // reverse z-order, so the last-added control is docked first; adding
+        // the status strip last gives it the bottom strip before Fill claims it.
         Controls.Add(_tabs);
+        Controls.Add(_statusStrip);
 
         // ── Notification polling timer ─────────────────────────────────────────
         _notificationTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
@@ -320,9 +325,13 @@ public class MainForm : Form
             if (currentUnread > _lastUnreadCount)
             {
                 foreach (var n in notifications.Take(currentUnread - _lastUnreadCount))
-                    _notificationService.Raise((NotificationKind)Enum.Parse(typeof(NotificationKind), n.Kind), n.Message);
+                {
+                    if (Enum.TryParse<NotificationKind>(n.Kind, out var kind))
+                        _notificationService.Raise(kind, n.Message);
+                }
             }
 
+            // Set the unread count once at the end – do not increment inside HandleNewNotification
             _lastUnreadCount = currentUnread;
         }
         catch
@@ -338,11 +347,11 @@ public class MainForm : Form
     /// </summary>
     private void HandleNewNotification(NotificationKind kind, string message)
     {
-        _lastUnreadCount++;
-        _tabNotifications.Text = $"Notifications ({_lastUnreadCount}!)";
-        _lblStatusUser.Text    = $"🔔 New: [{kind}] {message}";
+        // _lastUnreadCount is set by the timer itself – do not increment here.
+        // Just update the UI bits that should react to a new arrival.
+        _lblStatusUser.Text = $"New: [{kind}] {message}";
 
-        // Refresh the grid to show the new entry
+        // Refresh the grid (and tab badge) to show the new entry
         _ = LoadNotificationsAsync();
     }
 

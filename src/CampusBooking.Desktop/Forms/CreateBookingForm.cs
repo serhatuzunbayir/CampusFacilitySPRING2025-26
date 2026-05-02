@@ -175,7 +175,7 @@ public class CreateBookingForm : Form
 
         _btnBook.Enabled = false;
 
-        var (ok, error) = await _api.CreateBookingAsync(facilityId, date, [timeSlot]);
+        var (ok, error) = await _api.CreateBookingAsync(facilityId, date, new[] { timeSlot });
 
         if (ok)
         {
