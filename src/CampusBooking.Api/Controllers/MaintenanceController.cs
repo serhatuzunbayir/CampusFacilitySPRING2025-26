@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using CampusBooking.Api.Data;
 using CampusBooking.Api.Data.Entities;
+using CampusBooking.Api.Dtos;
 using CampusBooking.Api.Services;
 using CampusBooking.Shared;
 using CampusBooking.Shared.Dtos.Maintenance;
@@ -30,19 +31,17 @@ public class MaintenanceController : ControllerBase
     [HttpPost]
     [Authorize(Roles = "Student,Staff")]
     [Consumes("multipart/form-data")]
-    public async Task<ActionResult<MaintenanceIssueResponse>> Create(
-        [FromForm] CreateMaintenanceIssueRequest request,
-        [FromForm] IFormFile? Photo)
+    public async Task<ActionResult<MaintenanceIssueResponse>> Create([FromForm] CreateMaintenanceIssueForm form)
     {
-        var facility = await _db.Facilities.FindAsync(request.FacilityId);
+        var facility = await _db.Facilities.FindAsync(form.FacilityId);
         if (facility is null)
             return NotFound(new { message = "Facility not found." });
 
         string? photoPath = null;
-        if (Photo is not null)
+        if (form.Photo is not null)
         {
             var allowed = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-            var ext = Path.GetExtension(Photo.FileName).ToLowerInvariant();
+            var ext = Path.GetExtension(form.Photo.FileName).ToLowerInvariant();
             if (!allowed.Contains(ext))
                 return BadRequest(new { message = "Only image files are allowed." });
 
@@ -54,7 +53,7 @@ public class MaintenanceController : ControllerBase
             var fullPath = Path.Combine(uploadDir, fileName);
 
             await using var stream = System.IO.File.Create(fullPath);
-            await Photo.CopyToAsync(stream);
+            await form.Photo.CopyToAsync(stream);
 
             photoPath = Path.Combine("uploads", "maintenance", fileName).Replace('\\', '/');
         }
@@ -63,10 +62,10 @@ public class MaintenanceController : ControllerBase
 
         var issue = new MaintenanceIssue
         {
-            FacilityId = request.FacilityId,
+            FacilityId = form.FacilityId,
             ReporterId = reporterId,
-            Description = request.Description,
-            Severity = request.Severity,
+            Description = form.Description,
+            Severity = form.Severity,
             PhotoPath = photoPath,
             Status = MaintenanceStatus.Open
         };
