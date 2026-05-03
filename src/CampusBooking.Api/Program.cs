@@ -17,7 +17,7 @@ builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
     {
         options.User.RequireUniqueEmail = true;
-        options.Password.RequiredLength = 8;
+        options.Password.RequiredLength = 7;
     })
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
@@ -70,6 +70,7 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// CLI seed branch: "dotnet run -- seed [--test]" runs the seeder and exits without starting the HTTP server.
 if (args.Contains("seed"))
 {
     using var scope = app.Services.CreateScope();

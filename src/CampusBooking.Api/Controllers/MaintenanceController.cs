@@ -220,6 +220,7 @@ public class MaintenanceController : ControllerBase
         if (issue.AssigneeId != userId)
             return Forbid();
 
+        // Personnel can only move forward through Pending -> InProgress -> Resolved.
         var validTransitions = new Dictionary<MaintenanceStatus, MaintenanceStatus>
         {
             [MaintenanceStatus.Pending] = MaintenanceStatus.InProgress,
@@ -286,6 +287,7 @@ public class MaintenanceController : ControllerBase
 
     private static async Task<FileContentResult> BuildCsvAsync(List<MaintenanceIssue> issues)
     {
+        // Write to a temp file via FileStream so very large logs do not balloon in memory.
         var tempPath = Path.Combine(Path.GetTempPath(), $"maintenance-log-{Guid.NewGuid()}.csv");
 
         await using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
@@ -322,6 +324,7 @@ public class MaintenanceController : ControllerBase
         };
     }
 
+    // RFC 4180 quoting: wrap in quotes if the field has a comma, quote, or newline; double any embedded quotes.
     private static string Escape(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";

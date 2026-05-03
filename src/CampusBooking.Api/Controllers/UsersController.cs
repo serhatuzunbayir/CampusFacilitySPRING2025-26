@@ -111,6 +111,7 @@ public class UsersController : ControllerBase
         return Ok(ToResponse(user, request.Role));
     }
 
+    // Soft-disable via permanent lockout instead of DELETE so audit rows referencing the user stay valid.
     [HttpDelete("{id}")]
     public async Task<IActionResult> Deactivate(string id)
     {

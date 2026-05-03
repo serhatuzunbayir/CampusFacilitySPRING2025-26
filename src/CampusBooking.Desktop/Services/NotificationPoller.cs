@@ -11,6 +11,7 @@ public class NotificationPoller
     private readonly System.Windows.Forms.Timer _timer;
     private int _lastUnread;
 
+    // Subscribers (e.g. MainForm) attach here to raise toast popups when new notifications arrive.
     public event NotificationHandler? OnNotification;
 
     public NotificationPoller(ApiClient api, UserSession session, IOptions<ApiOptions> opts)

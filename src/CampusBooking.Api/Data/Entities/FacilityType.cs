@@ -9,6 +9,7 @@ public class FacilityType
     [Required, MaxLength(64)]
     public string Name { get; set; } = string.Empty;
 
+    // True for Lab so reservations enter Pending; false for Classroom and Meeting Room which auto-confirm.
     public bool RequiresApproval { get; set; }
 
     public bool IsActive { get; set; } = true;

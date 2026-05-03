@@ -18,6 +18,7 @@ public class MaintenanceIssue
 
     public IssueSeverity Severity { get; set; } = IssueSeverity.Low;
 
+    // Relative path under wwwroot, e.g. "uploads/maintenance/<guid>.jpg". Null when no photo was uploaded.
     [MaxLength(512)]
     public string? PhotoPath { get; set; }
 

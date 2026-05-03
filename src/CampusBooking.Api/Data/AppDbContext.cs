@@ -46,6 +46,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // The actual unique index is filtered (excludes Cancelled and Rejected) and is created in DDL.
+            // EF only knows the unfiltered shape, which is enough for the conflict-check round trip.
             e.HasIndex(x => new { x.FacilityId, x.Date, x.TimeSlot }).IsUnique();
         });
 

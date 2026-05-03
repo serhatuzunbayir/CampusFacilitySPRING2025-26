@@ -62,6 +62,7 @@ public class NotificationsController : ControllerBase
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+        // ExecuteUpdateAsync runs the UPDATE in one round trip without loading rows into memory.
         await _db.Notifications
             .Where(n => n.RecipientUserId == userId && !n.IsRead)
             .ExecuteUpdateAsync(s => s.SetProperty(n => n.IsRead, true));

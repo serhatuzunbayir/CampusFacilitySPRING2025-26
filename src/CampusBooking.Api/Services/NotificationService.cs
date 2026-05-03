@@ -16,6 +16,7 @@ public class NotificationService
         _users = users;
     }
 
+    // Single-recipient path: persist a row; the desktop poller picks it up and the client-side delegate raises a toast.
     public async Task SendAsync(string recipientUserId, NotificationKind kind, string message)
     {
         _db.Notifications.Add(new Notification
@@ -27,6 +28,7 @@ public class NotificationService
         await _db.SaveChangesAsync();
     }
 
+    // Role-broadcast path: fan a single message out to every user in the role (used for cancellations to all managers).
     public async Task SendToRoleAsync(string roleName, NotificationKind kind, string message)
     {
         var users = await _users.GetUsersInRoleAsync(roleName);

@@ -27,6 +27,7 @@ public class ApiClient
         _session = session;
     }
 
+    // Reads from the live UserSession every call so a re-login picks up the new JWT without rebuilding the client.
     private void AttachToken(HttpRequestMessage req)
     {
         if (!string.IsNullOrEmpty(_session.Token))

@@ -126,6 +126,28 @@ public class MainForm : Form
         _tabs.TabPages.Add(_tabBookings);
         _tabs.TabPages.Add(_tabNotifications);
 
+        if (_session.IsManager || _session.Role == "MaintenancePersonnel")
+        {
+            var tabMaint = new TabPage("Maintenance");
+            var btnOpen = MakeButton("Open Maintenance Window", 220);
+            btnOpen.Height = 36;
+            btnOpen.Margin = new Padding(20);
+            btnOpen.Click += (_, _) =>
+            {
+                var form = _services.GetRequiredService<MaintenanceForm>();
+                form.ShowDialog(this);
+            };
+            var panel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(20),
+                FlowDirection = FlowDirection.LeftToRight
+            };
+            panel.Controls.Add(btnOpen);
+            tabMaint.Controls.Add(panel);
+            _tabs.TabPages.Add(tabMaint);
+        }
+
         Controls.Add(_tabs);
         Controls.Add(_statusStrip);
 
@@ -288,6 +310,7 @@ public class MainForm : Form
 
     private void HandleNewNotification(NotificationKind kind, string message)
     {
+        // Poller fires on a worker thread; marshal back to the UI thread before touching controls.
         if (InvokeRequired)
         {
             BeginInvoke(new Action(() => HandleNewNotification(kind, message)));

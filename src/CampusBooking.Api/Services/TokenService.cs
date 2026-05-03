@@ -27,6 +27,7 @@ public class TokenService
             new("displayName", user.DisplayName)
         };
 
+        // Role claims drive [Authorize(Roles = "...")] checks on every controller action.
         foreach (var role in roles)
             claims.Add(new Claim(ClaimTypes.Role, role));
 

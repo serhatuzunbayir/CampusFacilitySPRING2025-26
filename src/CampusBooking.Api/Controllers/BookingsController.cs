@@ -31,6 +31,7 @@ public class BookingsController : ControllerBase
         if (query.TimeSlot < 8 || query.TimeSlot > 19)
             return BadRequest(new { message = "TimeSlot must be between 8 and 19." });
 
+        // Skip rejected and cancelled rows so a freed slot shows up as available again.
         var bookedFacilityIds = await _db.Bookings
             .Where(b => b.Date == query.Date &&
                         b.TimeSlot == query.TimeSlot &&
@@ -80,6 +81,7 @@ public class BookingsController : ControllerBase
         if (facility is null)
             return NotFound(new { message = "Facility not found or inactive." });
 
+        // First conflict check is in-app so we can return a friendly per-slot message.
         var conflicting = await _db.Bookings
             .Where(b => b.FacilityId == request.FacilityId &&
                         b.Date == request.Date &&
@@ -94,6 +96,7 @@ public class BookingsController : ControllerBase
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+        // Labs need a manager decision; classrooms and meeting rooms auto-confirm.
         var status = facility.FacilityType.RequiresApproval
             ? BookingStatus.Pending
             : BookingStatus.Confirmed;
@@ -124,6 +127,7 @@ public class BookingsController : ControllerBase
         }
         catch (DbUpdateException)
         {
+            // Two requests can race past the in-app check; the filtered unique index in DDL is the final guard.
             return Conflict(new { message = "Slot already booked." });
         }
 
@@ -327,6 +331,7 @@ public class BookingsController : ControllerBase
         return Ok(ToResponse(booking));
     }
 
+    // Users can cancel or modify their own booking up to 2 hours before it starts.
     private static bool IsWithinCancellationWindow(Booking booking)
     {
         var slotStart = booking.Date.ToDateTime(new TimeOnly(booking.TimeSlot, 0), DateTimeKind.Utc);

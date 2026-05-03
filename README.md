@@ -2,9 +2,9 @@
 
 Course project for **SE410, Spring 2025-26**.
 
-A line-of-business system for managing campus facility reservations (labs, classrooms, meeting rooms) and the maintenance work that keeps them running. Students and staff use a web app to find and book rooms; facility managers and maintenance personnel use a Windows desktop app to approve bookings, assign maintenance tasks, and generate logs. Both clients talk to a shared Web API backed by a single SQL Server database.
+A line-of-business system for managing campus facility reservations (labs, classrooms, meeting rooms) and the maintenance work that keeps them running. In the long-term plan, students and staff use a web app to find and book rooms while facility managers and maintenance personnel use a Windows desktop app to approve bookings, assign maintenance, and generate logs. Both clients talk to a shared Web API backed by a single SQL Server database.
 
-**Project members:** 
+**Project members:**
 
 Muhammed (Arda) SEZAİ
 Aral CAVLAK
@@ -13,7 +13,195 @@ Selin Sinem ERGÜL
 
 ---
 
-## Functional & Non-Functional Requirements
+## V1 Release Notes
+
+V1 is the first graded deliverable (due 2026-05-06). It focuses on getting the database, the API, and the desktop client working end to end. The web MVC project exists in the solution but is not part of V1.
+
+### What V1 includes
+
+**Database integration**
+
+* SQL Server schema (LocalDB on Windows) with `Facilities`, `FacilityTypes`, `Bookings`, `MaintenanceIssues`, `MaintenanceStatusHistory`, `Notifications`, plus the standard ASP.NET Identity tables.
+* The schema is built manually from `sql/CampusBooking-Schema.sql`. Entity Framework only reads the tables; it never creates or migrates them.
+* A filtered unique index on `(FacilityId, Date, TimeSlot)` prevents double-booking at the database level.
+
+**Basic CRUD**
+
+* Facility types and facilities (create, edit, deactivate) through the API and the desktop Facilities form.
+* Users and roles (create, list, disable, reset password) through the API; managed in the desktop Users tab.
+* Bookings (create, cancel, modify, approve, reject) through the API; managed from the desktop Bookings tab.
+* Maintenance issues (report, assign, transition status) through the API and the desktop Maintenance form.
+
+**LINQ**
+
+* Availability search filters and sorts free slots from `Bookings` and `Facilities`.
+* Conflict check on reservation skips cancelled and rejected rows so a freed slot can be reused.
+* Maintenance log aggregation filters by facility, date range, status, and assignee.
+
+**Delegates + event handlers**
+
+* A shared `NotificationHandler` delegate raised by `NotificationService` on five events: booking confirmed, booking approved, booking rejected, booking cancelled, maintenance assigned, maintenance status changed.
+* The desktop client subscribes to that delegate to show toast popups and update the inbox count without polling logic in the form code.
+
+**WinForms GUI**
+
+* `LoginForm` for authentication.
+* `MainDashboardForm` host shell with tabs for Bookings, Facilities, Users, and Maintenance.
+* `MaintenanceForm` for reporting issues, assigning personnel, and exporting CSV logs through `FileStream`.
+
+**JWT authentication**
+
+* `POST /api/auth/login` returns an 8-hour bearer token with role claims.
+* Every non-anonymous endpoint enforces role authorization. There is no public self-registration.
+
+**Audit columns**
+
+* `Bookings` carries `CreatedBy/At`, `ApprovedBy/At`, `RejectedBy/At`, `CancelledBy/At`.
+* `MaintenanceIssues` carries `ReportedBy/At`, `AssignedBy/At`, `AssignedAt`, `ResolvedAt`.
+* `MaintenanceStatusHistory` records every status transition with the user and timestamp.
+
+**Photo upload backend**
+
+* `POST /api/maintenance` accepts a multipart form. The API writes the file to `Api/wwwroot/uploads/{yyyy}/{MM}/` and stores the relative path in the database. JPEG, PNG, and WebP are accepted, with a 5 MB cap.
+
+### What is deferred to V2
+
+The following pieces are scaffolded in the codebase or in the FR list but are not part of the V1 release:
+
+* The **web MVC client** (`CampusBooking.Web`). Search, booking, maintenance reporting, and the notification banner from a browser are V2.
+* The **scheduler dashboard** (the day and week calendar grid with auto-refresh).
+* The **profile page** (web).
+* A dedicated **InboxForm** in the desktop client (notifications still appear as toasts in V1).
+* A dedicated **UsersForm** as a standalone screen (user management still works through the Users tab in `MainDashboardForm`).
+* A dedicated **PendingApprovalsForm** (approve/reject still works through the Bookings tab in `MainDashboardForm`, just without a separate workflow screen).
+
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| .NET 8 SDK | Download from https://dotnet.microsoft.com/download/dotnet/8.0 |
+| SQL Server | Windows: SQL Server LocalDB (ships with Visual Studio). macOS / Linux: Docker `mcr.microsoft.com/mssql/server:2022-latest` or any SQL Server 2017+ instance. |
+| IDE | Visual Studio 2022 (recommended on Windows for the WinForms designer), VS Code, or JetBrains Rider |
+
+The desktop project targets `net8.0-windows` and only runs on Windows. The API and the (V2) web project run on any OS.
+
+---
+
+## Setup (one command)
+
+From the repository root:
+
+**Windows (PowerShell):**
+
+```powershell
+pwsh tools/setup.ps1
+```
+
+**macOS / Linux (bash):**
+
+```bash
+./tools/setup.sh
+```
+
+The script restores packages, applies the schema, runs `dotnet run -- seed --test` against the API, and prints the URL the API will listen on.
+
+If you are not on Windows, set the connection string before running the script:
+
+```bash
+export CFB_API_CONNECTIONSTRING="Server=localhost,1433;Database=CampusBooking;User Id=sa;Password=Your_Password123;TrustServerCertificate=True"
+```
+
+The API reads `CFB_API_CONNECTIONSTRING` if it is set; otherwise it falls back to the LocalDB connection string in `appsettings.json`.
+
+---
+
+## Manual setup (if scripts fail)
+
+1. Clone the repository and open `src/CampusBooking.sln` in your IDE.
+2. Open SSMS (or `sqlcmd`) and connect to `(localdb)\mssqllocaldb`. On macOS or Linux, connect to your own SQL Server.
+3. Create a database named `CampusBooking`.
+4. Run the DDL in `sql/CampusBooking-Schema.sql` against the new database.
+5. Restore and build:
+
+```bash
+dotnet build src/CampusBooking.sln
+```
+
+6. Seed base rows plus test data:
+
+```bash
+dotnet run --project src/CampusBooking.Api -- seed --test
+```
+
+The seed command runs the seeder, then exits without starting the HTTP server.
+
+7. Start the API:
+
+```bash
+dotnet run --project src/CampusBooking.Api
+```
+
+The API listens on `https://localhost:7XXX` and `http://localhost:5XXX` (the exact ports come from `Properties/launchSettings.json`). Swagger is available at `/swagger`.
+
+8. Start the desktop client (Windows only):
+
+```bash
+dotnet run --project src/CampusBooking.Desktop
+```
+
+---
+
+## Default credentials
+
+After running `seed --test`:
+
+| Email | Password | Role |
+|---|---|---|
+| `admin@campus.local` | `Admin!23` | FacilityManager |
+| `student1@campus.local` | `Pass!23` | Student |
+| `staff1@campus.local` | `Pass!23` | Staff |
+| `manager1@campus.local` | `Pass!23` | FacilityManager |
+| `mp1@campus.local` | `Pass!23` | MaintenancePersonnel |
+
+Running `seed` without `--test` only creates the admin account.
+
+---
+
+## What each feature does
+
+**Booking with auto-confirm vs approval flow**
+
+When a student or staff member submits a reservation, the API runs a LINQ conflict check against existing bookings on the same facility, date, and hour. Reservations for Classrooms and Meeting Rooms are auto-confirmed. Reservations for Labs are saved as `Pending` so a Facility Manager can approve or reject them on the desktop. If two requests collide on the same slot, the database unique index rejects the second one and the API returns HTTP 409.
+
+**Cancellation window**
+
+Users can cancel their own reservations up to two hours before the slot starts. After that cutoff the API rejects the request. Cancellation immediately frees the slot (the unique index is filtered to ignore cancelled and rejected rows) and fires a notification to the Facility Manager.
+
+**Maintenance reporting with photo, assignment, and CSV log**
+
+A user submits a maintenance issue with a description, severity, and an optional photo. The photo is uploaded as multipart and the API stores it under `Api/wwwroot/uploads/{yyyy}/{MM}/`. A Facility Manager assigns the issue to a Maintenance Personnel user; the assignee transitions the issue through `Pending`, `In Progress`, and `Resolved`. Every transition is recorded in `MaintenanceStatusHistory`. Managers can export the log filtered by facility, date range, status, and assignee to a CSV file using a `FileStream`-backed writer.
+
+**In-app notifications via delegate**
+
+The API persists a `NotificationRecord` for each event and exposes `GET /api/notifications/unread`. The desktop client polls that endpoint every 15 seconds. When new notifications arrive, the shared `NotificationHandler` delegate fires; subscribers display a toast popup and refresh the inbox count. There is no SignalR or WebSocket layer; the polling interval was chosen to keep V1 simple.
+
+---
+
+## Limitations / known issues
+
+* V1 is desktop-only. There is no web client yet; the `CampusBooking.Web` project compiles but is not wired up in V1.
+* No scheduler grid. The day and week calendar dashboard is planned for V2.
+* On Windows, the API uses an HTTPS dev certificate. If your browser or the desktop client cannot reach the API, run `dotnet dev-certs https --trust` once and restart the terminal.
+* SQL Server LocalDB is Windows-only. macOS and Linux users need their own SQL Server (Docker image works fine) and must set `CFB_API_CONNECTIONSTRING`.
+* The API ships with a self-signed certificate in development. The desktop client is configured to accept it. This is acceptable only for local development; do not use these settings in a real deployment.
+
+---
+
+## Project Specification
+
+The full requirement set from the course brief is preserved below for reference. Items marked V2 above are still listed here so the spec stays intact.
 
 ### Functional Requirements
 

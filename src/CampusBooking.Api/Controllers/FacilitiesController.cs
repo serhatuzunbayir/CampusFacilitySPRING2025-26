@@ -131,6 +131,7 @@ public class FacilitiesController : ControllerBase
         });
     }
 
+    // Soft delete: facilities stay in the table so historical bookings keep their foreign key.
     [HttpDelete("{id}")]
     [Authorize(Roles = "FacilityManager")]
     public async Task<IActionResult> Deactivate(int id)

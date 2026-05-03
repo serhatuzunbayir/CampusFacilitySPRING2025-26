@@ -34,6 +34,7 @@ static class Program
                     var opts = sp.GetRequiredService<IOptions<ApiOptions>>().Value;
                     http.BaseAddress = new Uri(opts.BaseUrl);
                 })
+                // Local API uses a self-signed dev certificate; accept it so the desktop client can talk to https://localhost.
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
                 {
                     ServerCertificateCustomValidationCallback =
@@ -44,6 +45,7 @@ static class Program
                 services.AddTransient<MainForm>();
                 services.AddTransient<AddFacilityForm>();
                 services.AddTransient<CreateBookingForm>();
+                services.AddTransient<MaintenanceForm>();
             })
             .Build();
 
