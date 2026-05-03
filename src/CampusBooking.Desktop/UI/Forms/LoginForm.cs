@@ -22,57 +22,112 @@ public class LoginForm : Form
         _session = session;
         _services = services;
 
-        Text            = "Login";
-        Size            = new Size(400, 230);
+        Text            = "CampusBooking - Sign in";
+        Size            = new Size(460, 580);
         StartPosition   = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox     = false;
-        Font            = MainTheme.BodyFont;
+        Font            = MainTheme.Body;
         BackColor       = MainTheme.Background;
 
-        var layout = new TableLayoutPanel
+        var card = new Panel
         {
-            Dock        = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount    = 5,
-            Padding     = new Padding(24, 20, 24, 20)
+            Width     = 380,
+            Height    = 440,
+            BackColor = MainTheme.Surface,
+            Padding   = new Padding(32, 28, 32, 28)
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 3; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-
-        layout.Controls.Add(MakeLabel("Email:"), 0, 0);
-        _txtEmail = new TextBox { Dock = DockStyle.Fill };
-        layout.Controls.Add(_txtEmail, 1, 0);
-
-        layout.Controls.Add(MakeLabel("Password:"), 0, 1);
-        _txtPassword = new TextBox { PasswordChar = '*', Dock = DockStyle.Fill };
-        layout.Controls.Add(_txtPassword, 1, 1);
-
-        layout.Controls.Add(new Label(), 0, 2);
-        _btnLogin = new Button
+        card.Location = new Point((ClientSize.Width - card.Width) / 2,
+                                  (ClientSize.Height - card.Height) / 2);
+        card.Anchor = AnchorStyles.None;
+        card.Paint += (_, e) =>
         {
-            Text = "Login",
-            Dock = DockStyle.Fill,
-            BackColor = MainTheme.Primary,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
+            using var pen = new Pen(MainTheme.Border);
+            e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
         };
+
+        var brand = new Label
+        {
+            Text      = "CampusBooking",
+            Font      = MainTheme.Display,
+            ForeColor = MainTheme.Primary,
+            AutoSize  = true,
+            Location  = new Point(32, 28)
+        };
+        card.Controls.Add(brand);
+
+        var subtitle = new Label
+        {
+            Text      = "Sign in to your account",
+            Font      = MainTheme.Small,
+            ForeColor = MainTheme.TextSecondary,
+            AutoSize  = true,
+            Location  = new Point(32, 70)
+        };
+        card.Controls.Add(subtitle);
+
+        var divider = new Panel
+        {
+            Height    = 1,
+            Width     = 316,
+            BackColor = MainTheme.Divider,
+            Location  = new Point(32, 100)
+        };
+        card.Controls.Add(divider);
+
+        var emailLabel = Styles.FieldLabel("Email");
+        emailLabel.Location = new Point(32, 124);
+        card.Controls.Add(emailLabel);
+
+        _txtEmail = new TextBox
+        {
+            Location  = new Point(32, 146),
+            Width     = 316,
+            Font      = MainTheme.Body,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        card.Controls.Add(_txtEmail);
+
+        var passwordLabel = Styles.FieldLabel("Password");
+        passwordLabel.Location = new Point(32, 188);
+        card.Controls.Add(passwordLabel);
+
+        _txtPassword = new TextBox
+        {
+            Location     = new Point(32, 210),
+            Width        = 316,
+            PasswordChar = '●',
+            Font         = MainTheme.Body,
+            BorderStyle  = BorderStyle.FixedSingle
+        };
+        _txtPassword.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                btnLogin_Click(_btnLogin!, EventArgs.Empty);
+            }
+        };
+        card.Controls.Add(_txtPassword);
+
+        _btnLogin = Styles.PrimaryButton("Sign in", 300);
+        _btnLogin.Location = new Point(40, 264);
         _btnLogin.Click += btnLogin_Click;
-        layout.Controls.Add(_btnLogin, 1, 2);
+        card.Controls.Add(_btnLogin);
 
         _lblError = new Label
         {
             ForeColor = MainTheme.Danger,
-            Dock = DockStyle.Fill,
+            Font      = MainTheme.Small,
+            AutoSize  = false,
+            Width     = 316,
+            Height    = 40,
+            Location  = new Point(32, 312),
             TextAlign = ContentAlignment.MiddleLeft
         };
-        layout.SetColumnSpan(_lblError, 2);
-        layout.Controls.Add(_lblError, 0, 4);
+        card.Controls.Add(_lblError);
 
-        Controls.Add(layout);
+        Controls.Add(card);
         AcceptButton = _btnLogin;
     }
 
@@ -115,11 +170,4 @@ public class LoginForm : Form
             _btnLogin.Enabled = true;
         }
     }
-
-    private static Label MakeLabel(string text) => new()
-    {
-        Text = text,
-        Dock = DockStyle.Fill,
-        TextAlign = ContentAlignment.MiddleRight
-    };
 }

@@ -1,5 +1,6 @@
 using System.Text;
 using CampusBooking.Desktop.Services;
+using CampusBooking.Desktop.UI.Forms.Details;
 using CampusBooking.Desktop.UI.Themes;
 using CampusBooking.Shared.Dtos.Maintenance;
 using CampusBooking.Shared.Dtos.Users;
@@ -38,6 +39,10 @@ public class MaintenanceForm : Form
     private List<MaintenanceIssueResponse> _logCache = new();
     private Dictionary<int, string> _facilityTypeByFacilityId = new();
 
+    // Each grid keeps its own cache so double-click can resolve a row back to the full DTO.
+    private List<MaintenanceIssueResponse> _openCache = new();
+    private List<MaintenanceIssueResponse> _mineCache = new();
+
     public MaintenanceForm(ApiClient api, UserSession session, IServiceProvider services)
     {
         _api = api;
@@ -45,29 +50,33 @@ public class MaintenanceForm : Form
         _services = services;
 
         Text            = "Maintenance";
-        Size            = new Size(1000, 600);
+        Size            = new Size(1100, 720);
         StartPosition   = FormStartPosition.CenterParent;
-        Font            = MainTheme.BodyFont;
+        Font            = MainTheme.Body;
         BackColor       = MainTheme.Background;
         MinimizeBox     = false;
 
-        _tabs = new TabControl { Dock = DockStyle.Fill };
+        _tabs = new TabControl { Dock = DockStyle.Fill, Font = MainTheme.Body };
 
         if (_session.IsManager)
         {
             _tabOpen = new TabPage("Open Issues");
             _gridOpen = MakeGrid(
-                ("Id",        "Id",          false),
-                ("Facility",  "Facility",    true),
-                ("Reporter",  "Reporter",    true),
-                ("Severity",  "Severity",    true),
+                ("Id",          "Id",          false),
+                ("Facility",    "Facility",    true),
+                ("Reporter",    "Reporter",    true),
+                ("Severity",    "Severity",    true),
                 ("Description", "Description", true),
-                ("CreatedAt", "Created",     true));
-            _btnRefreshOpen = MakeButton("Refresh", 90);
-            _btnAssign      = MakeButton("Assign...", 110);
+                ("CreatedAt",   "Created",     true));
+            _gridOpen.CellFormatting += Grid_CellFormatting;
+            _gridOpen.CellDoubleClick += GridOpen_CellDoubleClick;
+
+            _btnRefreshOpen = Styles.SecondaryButton("Refresh", 100);
+            _btnAssign      = Styles.PrimaryButton("Assign...", 120);
             _btnRefreshOpen.Click += async (_, _) => await LoadOpenAsync();
             _btnAssign.Click      += btnAssign_Click;
-            _tabOpen.Controls.Add(BuildTabLayout(_gridOpen, _btnRefreshOpen, _btnAssign));
+
+            _tabOpen.Controls.Add(BuildTabLayout(_gridOpen, _btnAssign, _btnRefreshOpen));
             _tabs.TabPages.Add(_tabOpen);
         }
 
@@ -81,13 +90,17 @@ public class MaintenanceForm : Form
                 ("Description", "Description", true),
                 ("Status",      "Status",      true),
                 ("AssignedAt",  "Assigned",    true));
-            _btnRefreshMine = MakeButton("Refresh", 90);
-            _btnStart       = MakeButton("Start", 80);
-            _btnResolve     = MakeButton("Resolve", 90);
+            _gridMine.CellFormatting += Grid_CellFormatting;
+            _gridMine.CellDoubleClick += GridMine_CellDoubleClick;
+
+            _btnRefreshMine = Styles.SecondaryButton("Refresh", 100);
+            _btnStart       = Styles.PrimaryButton("Start", 90);
+            _btnResolve     = Styles.PrimaryButton("Resolve", 100);
             _btnRefreshMine.Click += async (_, _) => await LoadMineAsync();
             _btnStart.Click       += async (_, _) => await UpdateMyStatusAsync(MaintenanceStatus.InProgress);
             _btnResolve.Click     += async (_, _) => await UpdateMyStatusAsync(MaintenanceStatus.Resolved);
-            _tabMine.Controls.Add(BuildTabLayout(_gridMine, _btnRefreshMine, _btnStart, _btnResolve));
+
+            _tabMine.Controls.Add(BuildTabLayout(_gridMine, _btnResolve, _btnStart, _btnRefreshMine));
             _tabs.TabPages.Add(_tabMine);
         }
 
@@ -105,53 +118,73 @@ public class MaintenanceForm : Form
                 ("Description", "Description", true),
                 ("CreatedAt",   "Created",     true),
                 ("ResolvedAt",  "Resolved",    true));
+            _gridLog.CellFormatting += Grid_CellFormatting;
+            _gridLog.CellDoubleClick += GridLog_CellDoubleClick;
 
-            var filterPanel = new FlowLayoutPanel
+            var filterPanel = new Panel
             {
-                Dock          = DockStyle.Top,
-                Height        = 44,
-                Padding       = new Padding(6, 6, 6, 4),
-                FlowDirection = FlowDirection.LeftToRight
+                Dock      = DockStyle.Top,
+                Height    = 80,
+                Padding   = new Padding(12, 10, 12, 10),
+                BackColor = MainTheme.SurfaceAlt
             };
 
-            filterPanel.Controls.Add(new Label { Text = "Type:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) });
-            _cmbLogType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
+            // Lay out the filter row using a TableLayoutPanel so the FieldLabels sit above each input.
+            var fl = new TableLayoutPanel
+            {
+                Dock        = DockStyle.Fill,
+                ColumnCount = 7,
+                RowCount    = 2,
+                BackColor   = Color.Transparent
+            };
+            fl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+            fl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+            fl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+            fl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+            fl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+            fl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+            fl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            fl.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+            fl.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+
+            fl.Controls.Add(Styles.FieldLabel("Type"),    0, 0);
+            fl.Controls.Add(Styles.FieldLabel("Status"),  1, 0);
+            fl.Controls.Add(Styles.FieldLabel("From"),    2, 0);
+            fl.Controls.Add(Styles.FieldLabel("To"),      3, 0);
+
+            _cmbLogType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, Font = MainTheme.Body, FlatStyle = FlatStyle.Flat };
             _cmbLogType.Items.Add("(any)");
             _cmbLogType.SelectedIndex = 0;
-            filterPanel.Controls.Add(_cmbLogType);
+            fl.Controls.Add(_cmbLogType, 0, 1);
 
-            filterPanel.Controls.Add(new Label { Text = "  Status:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) });
-            _cmbLogStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
+            _cmbLogStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120, Font = MainTheme.Body, FlatStyle = FlatStyle.Flat };
             _cmbLogStatus.Items.Add("(any)");
             foreach (var s in Enum.GetNames<MaintenanceStatus>())
                 _cmbLogStatus.Items.Add(s);
             _cmbLogStatus.SelectedIndex = 0;
-            filterPanel.Controls.Add(_cmbLogStatus);
+            fl.Controls.Add(_cmbLogStatus, 1, 1);
 
-            filterPanel.Controls.Add(new Label { Text = "  From:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) });
-            _dtpLogFrom = new DateTimePicker { Format = DateTimePickerFormat.Short, Width = 110, Value = DateTime.Today.AddMonths(-1) };
-            filterPanel.Controls.Add(_dtpLogFrom);
+            _dtpLogFrom = new DateTimePicker { Format = DateTimePickerFormat.Short, Width = 120, Value = DateTime.Today.AddMonths(-1), Font = MainTheme.Body };
+            fl.Controls.Add(_dtpLogFrom, 2, 1);
 
-            filterPanel.Controls.Add(new Label { Text = "  To:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) });
-            _dtpLogTo = new DateTimePicker { Format = DateTimePickerFormat.Short, Width = 110, Value = DateTime.Today };
-            filterPanel.Controls.Add(_dtpLogTo);
+            _dtpLogTo = new DateTimePicker { Format = DateTimePickerFormat.Short, Width = 120, Value = DateTime.Today, Font = MainTheme.Body };
+            fl.Controls.Add(_dtpLogTo, 3, 1);
 
-            _btnApplyFilters = MakeButton("Apply Filters", 120);
-            _btnApplyFilters.Margin = new Padding(8, 2, 0, 0);
+            _btnApplyFilters = Styles.PrimaryButton("Apply", 110);
             _btnApplyFilters.Click += (_, _) => ApplyLogFilters();
-            filterPanel.Controls.Add(_btnApplyFilters);
+            fl.Controls.Add(_btnApplyFilters, 4, 1);
 
-            _btnExportCsv = MakeButton("Export CSV", 110);
-            _btnExportCsv.Margin = new Padding(4, 2, 0, 0);
+            _btnExportCsv = Styles.SecondaryButton("Export CSV", 110);
             _btnExportCsv.Click += btnExportCsv_Click;
-            filterPanel.Controls.Add(_btnExportCsv);
+            fl.Controls.Add(_btnExportCsv, 5, 1);
 
-            var refresh = MakeButton("Refresh", 90);
-            refresh.Margin = new Padding(4, 2, 0, 0);
+            var refresh = Styles.SecondaryButton("Refresh", 100);
             refresh.Click += async (_, _) => await LoadLogAsync();
-            filterPanel.Controls.Add(refresh);
+            fl.Controls.Add(refresh, 6, 1);
 
-            var root = new Panel { Dock = DockStyle.Fill };
+            filterPanel.Controls.Add(fl);
+
+            var root = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0) };
             root.Controls.Add(_gridLog);
             root.Controls.Add(filterPanel);
             _tabLog.Controls.Add(root);
@@ -176,7 +209,8 @@ public class MaintenanceForm : Form
         {
             _gridOpen.Rows.Clear();
             var issues = await _api.GetMaintenanceIssuesAsync();
-            foreach (var i in issues.Where(x => x.Status == MaintenanceStatus.Open))
+            _openCache = issues.Where(x => x.Status == MaintenanceStatus.Open).ToList();
+            foreach (var i in _openCache)
             {
                 _gridOpen.Rows.Add(
                     i.Id,
@@ -200,11 +234,11 @@ public class MaintenanceForm : Form
         {
             _gridMine.Rows.Clear();
             var issues = await _api.GetMaintenanceIssuesAsync();
-            var mine = issues.Where(i =>
+            _mineCache = issues.Where(i =>
                 i.AssigneeId == _session.UserId &&
-                (i.Status == MaintenanceStatus.Pending || i.Status == MaintenanceStatus.InProgress));
+                (i.Status == MaintenanceStatus.Pending || i.Status == MaintenanceStatus.InProgress)).ToList();
 
-            foreach (var i in mine)
+            foreach (var i in _mineCache)
             {
                 _gridMine.Rows.Add(
                     i.Id,
@@ -257,7 +291,6 @@ public class MaintenanceForm : Form
         // Push "to" to the last tick of the day so an inclusive end-of-day filter does not drop rows created later that day.
         var to           = (_dtpLogTo?.Value.Date ?? DateTime.MaxValue).AddDays(1).AddTicks(-1);
 
-        // chain of optional filters; each guarded so "(any)" or null skips that step
         var query = _logCache.AsEnumerable();
         if (!string.IsNullOrEmpty(typeFilter) && typeFilter != "(any)")
             query = query.Where(i =>
@@ -343,6 +376,97 @@ public class MaintenanceForm : Form
         }
     }
 
+    private void GridOpen_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        => OpenIssueDetails(_gridOpen, _openCache, e);
+
+    private void GridMine_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        => OpenIssueDetails(_gridMine, _mineCache, e);
+
+    private void GridLog_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+        => OpenIssueDetails(_gridLog, _logCache, e);
+
+    private void OpenIssueDetails(DataGridView? grid, IEnumerable<MaintenanceIssueResponse> source, DataGridViewCellEventArgs e)
+    {
+        if (grid is null || e.RowIndex < 0) return;
+        var idCell = grid.Rows[e.RowIndex].Cells["Id"].Value;
+        if (idCell is not int id) return;
+        var issue = source.FirstOrDefault(x => x.Id == id);
+        if (issue is null) return;
+        using var dlg = new MaintenanceDetailsForm(issue);
+        dlg.ShowDialog(this);
+    }
+
+    private void Grid_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (sender is not DataGridView grid) return;
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+
+        var col = grid.Columns[e.ColumnIndex].Name;
+        var style = e.CellStyle;
+        if (style is null) return;
+
+        if (col == "Severity" && e.Value is IssueSeverity sev)
+        {
+            ApplySeverityStyle(style, sev);
+            e.Value = sev.ToString();
+            e.FormattingApplied = true;
+        }
+        else if (col == "Status" && e.Value is MaintenanceStatus status)
+        {
+            ApplyStatusStyle(style, status);
+            e.Value = status.ToString();
+            e.FormattingApplied = true;
+        }
+    }
+
+    private static void ApplySeverityStyle(DataGridViewCellStyle style, IssueSeverity sev)
+    {
+        switch (sev)
+        {
+            case IssueSeverity.Critical:
+                style.BackColor = MainTheme.DangerSoft;
+                style.ForeColor = MainTheme.Danger;
+                break;
+            case IssueSeverity.High:
+                style.BackColor = MainTheme.WarningSoft;
+                style.ForeColor = MainTheme.Warning;
+                break;
+            case IssueSeverity.Medium:
+                style.BackColor = MainTheme.InfoSoft;
+                style.ForeColor = MainTheme.Info;
+                break;
+            default:
+                style.BackColor = MainTheme.NeutralSoft;
+                style.ForeColor = MainTheme.Neutral;
+                break;
+        }
+        style.Font = MainTheme.BodyBold;
+    }
+
+    private static void ApplyStatusStyle(DataGridViewCellStyle style, MaintenanceStatus status)
+    {
+        switch (status)
+        {
+            case MaintenanceStatus.Open:
+                style.BackColor = MainTheme.InfoSoft;
+                style.ForeColor = MainTheme.Info;
+                break;
+            case MaintenanceStatus.Pending:
+                style.BackColor = MainTheme.WarningSoft;
+                style.ForeColor = MainTheme.Warning;
+                break;
+            case MaintenanceStatus.InProgress:
+                style.BackColor = MainTheme.InfoSoft;
+                style.ForeColor = MainTheme.Info;
+                break;
+            case MaintenanceStatus.Resolved:
+                style.BackColor = MainTheme.SuccessSoft;
+                style.ForeColor = MainTheme.Success;
+                break;
+        }
+        style.Font = MainTheme.BodyBold;
+    }
+
     private void btnExportCsv_Click(object? sender, EventArgs e)
     {
         if (_gridLog is null) return;
@@ -401,50 +525,35 @@ public class MaintenanceForm : Form
     private static void ShowError(string title, Exception ex)
         => MessageBox.Show(ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
 
-    private static Button MakeButton(string text, int width) => new()
-    {
-        Text = text,
-        Width = width,
-        BackColor = MainTheme.Primary,
-        ForeColor = Color.White,
-        FlatStyle = FlatStyle.Flat
-    };
-
     private static DataGridView MakeGrid(params (string name, string header, bool visible)[] cols)
     {
-        var grid = new DataGridView
-        {
-            Dock                  = DockStyle.Fill,
-            ReadOnly              = true,
-            SelectionMode         = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect           = false,
-            AllowUserToAddRows    = false,
-            AllowUserToDeleteRows = false,
-            AutoSizeColumnsMode   = DataGridViewAutoSizeColumnsMode.Fill,
-            ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize
-        };
+        var grid = Styles.NiceGrid();
+        grid.Dock = DockStyle.Fill;
         foreach (var (name, header, visible) in cols)
             grid.Columns.Add(new DataGridViewTextBoxColumn
-                { Name = name, HeaderText = header, Visible = visible });
+            { Name = name, HeaderText = header, Visible = visible });
         return grid;
     }
 
-    private static Panel BuildTabLayout(DataGridView grid, params Control[] buttons)
+    private static Panel BuildTabLayout(DataGridView grid, params Control[] buttonsRightToLeft)
     {
         var root = new Panel { Dock = DockStyle.Fill };
-        var btnPanel = new FlowLayoutPanel
+        var btnPanel = new Panel
         {
-            Dock          = DockStyle.Bottom,
-            Height        = 44,
-            Padding       = new Padding(4),
-            FlowDirection = FlowDirection.LeftToRight
+            Dock      = DockStyle.Bottom,
+            Height    = 56,
+            Padding   = new Padding(12, 10, 12, 10),
+            BackColor = MainTheme.SurfaceAlt
         };
 
-        foreach (var btn in buttons)
+        // Right-align the action buttons in the order passed (first = furthest right).
+        foreach (var btn in buttonsRightToLeft)
         {
-            btn.Height = 32;
-            btn.Margin = new Padding(4, 4, 0, 0);
+            btn.Dock = DockStyle.Right;
+            btn.Margin = new Padding(8, 0, 0, 0);
             btnPanel.Controls.Add(btn);
+            // Spacer between adjacent docked controls so they don't touch.
+            btnPanel.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8, BackColor = Color.Transparent });
         }
 
         root.Controls.Add(grid);
@@ -464,47 +573,67 @@ internal class AssigneePickerDialog : Form
     public AssigneePickerDialog(List<UserResponse> personnel)
     {
         Text            = "Assign To";
-        Size            = new Size(400, 360);
+        Size            = new Size(440, 420);
         StartPosition   = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MinimizeBox     = false;
         MaximizeBox     = false;
-        Font            = MainTheme.BodyFont;
+        Font            = MainTheme.Body;
         BackColor       = MainTheme.Background;
+
+        var titleBar = new Panel
+        {
+            Dock      = DockStyle.Top,
+            Height    = 56,
+            BackColor = MainTheme.Primary
+        };
+        titleBar.Controls.Add(new Label
+        {
+            Text      = "Assign To",
+            Font      = MainTheme.Heading,
+            ForeColor = Color.White,
+            Dock      = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding   = new Padding(20, 0, 0, 0)
+        });
+
+        var card = new Panel
+        {
+            Dock      = DockStyle.Fill,
+            BackColor = MainTheme.Surface,
+            Padding   = new Padding(20)
+        };
+
+        var hint = Styles.FieldLabel("Pick a maintenance personnel");
+        hint.Dock = DockStyle.Top;
+        hint.Margin = new Padding(0, 0, 0, 6);
 
         _list = new ListBox
         {
-            Dock = DockStyle.Fill,
-            DisplayMember = nameof(UserResponse.DisplayName)
+            Dock          = DockStyle.Fill,
+            DisplayMember = nameof(UserResponse.DisplayName),
+            Font          = MainTheme.Body,
+            BorderStyle   = BorderStyle.FixedSingle,
+            ItemHeight    = 24
         };
         foreach (var u in personnel)
             _list.Items.Add(u);
 
         if (_list.Items.Count > 0) _list.SelectedIndex = 0;
 
-        var bottom = new FlowLayoutPanel
+        card.Controls.Add(_list);
+        card.Controls.Add(hint);
+
+        var bottom = new Panel
         {
-            Dock = DockStyle.Bottom,
-            Height = 44,
-            Padding = new Padding(8),
-            FlowDirection = FlowDirection.RightToLeft
+            Dock      = DockStyle.Bottom,
+            Height    = 60,
+            BackColor = MainTheme.SurfaceAlt,
+            Padding   = new Padding(20, 12, 20, 12)
         };
 
-        _btnCancel = new Button
-        {
-            Text = "Cancel",
-            Width = 90,
-            DialogResult = DialogResult.Cancel
-        };
-
-        _btnOk = new Button
-        {
-            Text = "OK",
-            Width = 90,
-            BackColor = MainTheme.Primary,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
+        _btnOk = Styles.PrimaryButton("Assign", 110);
+        _btnOk.Dock = DockStyle.Right;
         _btnOk.Click += (_, _) =>
         {
             if (_list.SelectedItem is UserResponse u)
@@ -515,11 +644,20 @@ internal class AssigneePickerDialog : Form
             }
         };
 
-        bottom.Controls.Add(_btnCancel);
-        bottom.Controls.Add(_btnOk);
+        _btnCancel = Styles.SecondaryButton("Cancel", 100);
+        _btnCancel.Dock = DockStyle.Right;
+        _btnCancel.DialogResult = DialogResult.Cancel;
+        _btnCancel.Margin = new Padding(0, 0, 8, 0);
 
-        Controls.Add(_list);
+        var sp = new Panel { Dock = DockStyle.Right, Width = 8 };
+
+        bottom.Controls.Add(_btnOk);
+        bottom.Controls.Add(sp);
+        bottom.Controls.Add(_btnCancel);
+
+        Controls.Add(card);
         Controls.Add(bottom);
+        Controls.Add(titleBar);
 
         AcceptButton = _btnOk;
         CancelButton = _btnCancel;

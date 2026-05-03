@@ -13,6 +13,7 @@ public class AddFacilityForm : Form
     private readonly TextBox  _txtCapacity;
     private readonly TextBox  _txtLocation;
     private readonly Button   _btnSave;
+    private readonly Button   _btnCancel;
     private readonly Label    _lblError;
 
     public bool FacilityCreated { get; private set; }
@@ -22,59 +23,122 @@ public class AddFacilityForm : Form
         _api = api;
 
         Text            = "Add Facility";
-        Size            = new Size(400, 300);
+        Size            = new Size(540, 460);
         StartPosition   = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox     = false;
-        Font            = MainTheme.BodyFont;
+        MinimizeBox     = false;
+        Font            = MainTheme.Body;
         BackColor       = MainTheme.Background;
 
-        var layout = new TableLayoutPanel
+        var titleBar = new Panel
+        {
+            Dock      = DockStyle.Top,
+            Height    = 56,
+            BackColor = MainTheme.Primary
+        };
+        titleBar.Controls.Add(new Label
+        {
+            Text      = "Add Facility",
+            Font      = MainTheme.Heading,
+            ForeColor = Color.White,
+            AutoSize  = false,
+            Dock      = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding   = new Padding(20, 0, 0, 0)
+        });
+
+        var card = new Panel
+        {
+            Dock      = DockStyle.Fill,
+            BackColor = MainTheme.Surface,
+            Padding   = new Padding(24)
+        };
+
+        var stack = new TableLayoutPanel
         {
             Dock        = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount    = 6,
-            Padding     = new Padding(20)
+            ColumnCount = 1,
+            AutoSize    = false,
+            BackColor   = Color.Transparent
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 5; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        // 4 fields × (label + input + hint) plus error + buttons
+        for (int i = 0; i < 14; i++) stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        layout.Controls.Add(MakeLabel("Name:"), 0, 0);
-        _txtName = new TextBox { Dock = DockStyle.Fill };
-        layout.Controls.Add(_txtName, 1, 0);
+        int row = 0;
 
-        layout.Controls.Add(MakeLabel("Type:"), 0, 1);
-        _cmbType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-        layout.Controls.Add(_cmbType, 1, 1);
+        stack.Controls.Add(Styles.FieldLabel("Name"), 0, row++);
+        _txtName = MakeInput();
+        stack.Controls.Add(_txtName, 0, row++);
+        stack.Controls.Add(Spacer(8), 0, row++);
 
-        layout.Controls.Add(MakeLabel("Capacity:"), 0, 2);
-        _txtCapacity = new TextBox { Dock = DockStyle.Fill, Text = "30" };
-        layout.Controls.Add(_txtCapacity, 1, 2);
-
-        layout.Controls.Add(MakeLabel("Location:"), 0, 3);
-        _txtLocation = new TextBox { Dock = DockStyle.Fill };
-        layout.Controls.Add(_txtLocation, 1, 3);
-
-        layout.Controls.Add(new Label(), 0, 4);
-        _btnSave = new Button
+        stack.Controls.Add(Styles.FieldLabel("Type"), 0, row++);
+        _cmbType = new ComboBox
         {
-            Text = "Save",
-            Dock = DockStyle.Fill,
-            BackColor = MainTheme.Primary,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Dock          = DockStyle.Top,
+            Font          = MainTheme.Body,
+            FlatStyle     = FlatStyle.Flat
         };
+        stack.Controls.Add(_cmbType, 0, row++);
+        stack.Controls.Add(Spacer(8), 0, row++);
+
+        stack.Controls.Add(Styles.FieldLabel("Capacity"), 0, row++);
+        _txtCapacity = MakeInput();
+        _txtCapacity.Text = "30";
+        stack.Controls.Add(_txtCapacity, 0, row++);
+        stack.Controls.Add(Hint("e.g. 24"), 0, row++);
+
+        stack.Controls.Add(Styles.FieldLabel("Location"), 0, row++);
+        _txtLocation = MakeInput();
+        stack.Controls.Add(_txtLocation, 0, row++);
+        stack.Controls.Add(Hint("e.g. Engineering Building / 1st floor"), 0, row++);
+
+        _lblError = new Label
+        {
+            ForeColor = MainTheme.Danger,
+            Font      = MainTheme.Small,
+            Dock      = DockStyle.Top,
+            AutoSize  = false,
+            Height    = 22,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Margin    = new Padding(0, 8, 0, 0)
+        };
+        stack.Controls.Add(_lblError, 0, row++);
+
+        card.Controls.Add(stack);
+
+        var buttonBar = new Panel
+        {
+            Dock      = DockStyle.Bottom,
+            Height    = 60,
+            BackColor = MainTheme.SurfaceAlt,
+            Padding   = new Padding(20, 12, 20, 12)
+        };
+
+        _btnSave = Styles.PrimaryButton("Create", 110);
+        _btnSave.Dock = DockStyle.Right;
         _btnSave.Click += btnSave_Click;
-        layout.Controls.Add(_btnSave, 1, 4);
 
-        _lblError = new Label { ForeColor = MainTheme.Danger, Dock = DockStyle.Fill };
-        layout.SetColumnSpan(_lblError, 2);
-        layout.Controls.Add(_lblError, 0, 5);
+        _btnCancel = Styles.SecondaryButton("Cancel", 100);
+        _btnCancel.Dock = DockStyle.Right;
+        _btnCancel.Margin = new Padding(0, 0, 8, 0);
+        _btnCancel.Click += (_, _) => Close();
 
-        Controls.Add(layout);
+        var spacer = new Panel { Dock = DockStyle.Right, Width = 8 };
+
+        buttonBar.Controls.Add(_btnSave);
+        buttonBar.Controls.Add(spacer);
+        buttonBar.Controls.Add(_btnCancel);
+
+        Controls.Add(card);
+        Controls.Add(buttonBar);
+        Controls.Add(titleBar);
+
         AcceptButton = _btnSave;
+        CancelButton = _btnCancel;
 
         Load += async (_, _) => await LoadTypesAsync();
     }
@@ -130,8 +194,27 @@ public class AddFacilityForm : Form
         }
     }
 
-    private static Label MakeLabel(string text) => new()
+    private static TextBox MakeInput() => new()
     {
-        Text = text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight
+        Dock        = DockStyle.Top,
+        Font        = MainTheme.Body,
+        BorderStyle = BorderStyle.FixedSingle,
+        Margin      = new Padding(0, 0, 0, 0)
+    };
+
+    private static Label Hint(string text) => new()
+    {
+        Text      = text,
+        Font      = MainTheme.Small,
+        ForeColor = MainTheme.TextMuted,
+        AutoSize  = true,
+        Margin    = new Padding(0, 2, 0, 0)
+    };
+
+    private static Panel Spacer(int height) => new()
+    {
+        Height    = height,
+        Dock      = DockStyle.Top,
+        BackColor = Color.Transparent
     };
 }
