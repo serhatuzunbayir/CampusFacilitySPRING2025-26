@@ -2,7 +2,6 @@ using System.Text;
 using CampusBooking.Api.Data;
 using CampusBooking.Api.Data.Entities;
 using CampusBooking.Api.Services;
-using CampusBooking.Shared;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -48,8 +47,7 @@ builder.Services
 
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<TokenService>();
-builder.Services.AddSingleton<NotificationService>();
-builder.Services.AddScoped<NotificationWriter>();
+builder.Services.AddScoped<NotificationService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -72,11 +70,12 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+if (args.Contains("seed"))
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.MigrateAsync();
-    await DbSeeder.SeedAsync(scope.ServiceProvider, app.Configuration);
+    using var scope = app.Services.CreateScope();
+    var testMode = args.Contains("--test");
+    await DbSeeder.SeedAsync(scope.ServiceProvider, app.Configuration, testMode);
+    return;
 }
 
 if (app.Environment.IsDevelopment())

@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using CampusBooking.Api.Data.Entities;
-using CampusBooking.Api.Dtos.Users;
+using CampusBooking.Shared.Dtos.Users;
 using CampusBooking.Shared.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -21,7 +21,6 @@ public class UsersController : ControllerBase
     public UsersController(UserManager<ApplicationUser> userManager)
         => _userManager = userManager;
 
-    // List all users, optionally filtered by role
     [HttpGet]
     public async Task<ActionResult<List<UserResponse>>> GetAll([FromQuery] string? role = null)
     {
@@ -30,7 +29,7 @@ public class UsersController : ControllerBase
         if (!string.IsNullOrEmpty(role))
         {
             if (!ValidRoles.Contains(role))
-                return BadRequest(new { message = $"Invalid role. Valid roles: {string.Join(", ", ValidRoles)}" });
+                return BadRequest(new { message = $"Invalid role. Valid: {string.Join(", ", ValidRoles)}" });
 
             users = (await _userManager.GetUsersInRoleAsync(role))
                 .OrderBy(u => u.DisplayName)
@@ -63,15 +62,14 @@ public class UsersController : ControllerBase
         return Ok(ToResponse(user, roles.FirstOrDefault() ?? string.Empty));
     }
 
-    // FR1 — FacilityManager creates accounts; no public self-registration
     [HttpPost]
     public async Task<ActionResult<UserResponse>> Create([FromBody] CreateUserRequest request)
     {
         if (!ValidRoles.Contains(request.Role))
-            return BadRequest(new { message = $"Invalid role. Valid roles: {string.Join(", ", ValidRoles)}" });
+            return BadRequest(new { message = $"Invalid role. Valid: {string.Join(", ", ValidRoles)}" });
 
         if (await _userManager.FindByEmailAsync(request.Email) is not null)
-            return Conflict(new { message = $"A user with email '{request.Email}' already exists." });
+            return Conflict(new { message = $"Email '{request.Email}' already exists." });
 
         var user = new ApplicationUser
         {
@@ -91,12 +89,11 @@ public class UsersController : ControllerBase
             ToResponse(user, request.Role));
     }
 
-    // Update display name and/or role
     [HttpPut("{id}")]
     public async Task<ActionResult<UserResponse>> Update(string id, [FromBody] UpdateUserRequest request)
     {
         if (!ValidRoles.Contains(request.Role))
-            return BadRequest(new { message = $"Invalid role. Valid roles: {string.Join(", ", ValidRoles)}" });
+            return BadRequest(new { message = $"Invalid role. Valid: {string.Join(", ", ValidRoles)}" });
 
         var user = await _userManager.FindByIdAsync(id);
         if (user is null) return NotFound();
@@ -114,7 +111,6 @@ public class UsersController : ControllerBase
         return Ok(ToResponse(user, request.Role));
     }
 
-    // Soft-delete via Identity lockout — preserves booking/audit history
     [HttpDelete("{id}")]
     public async Task<IActionResult> Deactivate(string id)
     {
@@ -123,7 +119,7 @@ public class UsersController : ControllerBase
 
         var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
         if (user.Id == callerId)
-            return BadRequest(new { message = "You cannot deactivate your own account." });
+            return BadRequest(new { message = "Cannot deactivate your own account." });
 
         await _userManager.SetLockoutEnabledAsync(user, true);
         await _userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);

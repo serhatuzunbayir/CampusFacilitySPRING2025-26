@@ -1,18 +1,12 @@
 using CampusBooking.Api.Data;
 using CampusBooking.Api.Data.Entities;
-using CampusBooking.Api.Dtos.Facilities;
+using CampusBooking.Shared.Dtos.Facilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace CampusBooking.Api.Controllers;
 
-/// <summary>
-/// CRUD operations for facility types (e.g. Lab, Classroom, Meeting Room).
-/// Read endpoints are open to all authenticated users; write endpoints are
-/// restricted to FacilityManager (FR2).
-/// DELETE soft-deletes by setting IsActive = false so existing facilities are not orphaned.
-/// </summary>
 [ApiController]
 [Route("api/facility-types")]
 [Authorize]

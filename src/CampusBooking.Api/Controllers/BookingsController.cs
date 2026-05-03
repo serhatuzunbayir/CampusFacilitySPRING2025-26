@@ -1,9 +1,9 @@
 using System.Security.Claims;
 using CampusBooking.Api.Data;
 using CampusBooking.Api.Data.Entities;
-using CampusBooking.Api.Dtos.Bookings;
 using CampusBooking.Api.Services;
 using CampusBooking.Shared;
+using CampusBooking.Shared.Dtos.Bookings;
 using CampusBooking.Shared.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,32 +11,25 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CampusBooking.Api.Controllers;
 
-/// <summary>
-/// Manages the full booking lifecycle: availability search (FR3), reservation with
-/// conditional approval (FR4), cancellation and modification with a 2-hour window (FR5).
-/// Also exposes pending-approval and approve/reject endpoints for FacilityManagers.
-/// Every state change is written to AuditLog and triggers a notification (FR6).
-/// </summary>
 [ApiController]
 [Route("api/bookings")]
 [Authorize]
 public class BookingsController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly NotificationWriter _notifier;
+    private readonly NotificationService _notifier;
 
-    public BookingsController(AppDbContext db, NotificationWriter notifier)
+    public BookingsController(AppDbContext db, NotificationService notifier)
     {
         _db = db;
         _notifier = notifier;
     }
 
-    // FR3 — search available facilities for a given date + time slot
     [HttpGet("availability")]
     public async Task<ActionResult<List<object>>> GetAvailability([FromQuery] AvailabilityQuery query)
     {
         if (query.TimeSlot < 8 || query.TimeSlot > 19)
-            return BadRequest(new { message = "TimeSlot must be between 8 and 19 (08:00–19:00)." });
+            return BadRequest(new { message = "TimeSlot must be between 8 and 19." });
 
         var bookedFacilityIds = await _db.Bookings
             .Where(b => b.Date == query.Date &&
@@ -73,7 +66,6 @@ public class BookingsController : ControllerBase
         return Ok(results);
     }
 
-    // FR4 — create a booking (one record per time slot)
     [HttpPost]
     [Authorize(Roles = "Student,Staff")]
     public async Task<ActionResult<List<BookingResponse>>> Create([FromBody] CreateBookingRequest request)
@@ -88,7 +80,6 @@ public class BookingsController : ControllerBase
         if (facility is null)
             return NotFound(new { message = "Facility not found or inactive." });
 
-        // FR4: conflict check for all requested slots
         var conflicting = await _db.Bookings
             .Where(b => b.FacilityId == request.FacilityId &&
                         b.Date == request.Date &&
@@ -99,11 +90,10 @@ public class BookingsController : ControllerBase
             .ToListAsync();
 
         if (conflicting.Any())
-            return Conflict(new { message = $"Time slot(s) already booked: {string.Join(", ", conflicting.Select(t => $"{t:00}:00"))}." });
+            return Conflict(new { message = $"Slot already booked: {string.Join(", ", conflicting.Select(t => $"{t:00}:00"))}." });
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-        // FR4: Labs require approval, others auto-confirm
         var status = facility.FacilityType.RequiresApproval
             ? BookingStatus.Pending
             : BookingStatus.Confirmed;
@@ -117,7 +107,16 @@ public class BookingsController : ControllerBase
             Status = status
         }).ToList();
 
+        var audit = new AuditLog
+        {
+            ActorUserId = userId,
+            Action = status == BookingStatus.Confirmed ? "BookingConfirmed" : "BookingPending",
+            EntityType = "Booking",
+            TimestampUtc = DateTime.UtcNow
+        };
+
         _db.Bookings.AddRange(bookings);
+        _db.AuditLogs.Add(audit);
 
         try
         {
@@ -125,12 +124,11 @@ public class BookingsController : ControllerBase
         }
         catch (DbUpdateException)
         {
-            // NFR3: unique constraint violation — concurrent booking
-            return Conflict(new { message = "One or more slots were booked concurrently. Please try again." });
+            return Conflict(new { message = "Slot already booked." });
         }
 
-        await WriteAuditAsync(userId, status == BookingStatus.Confirmed ? "BookingConfirmed" : "BookingPending",
-            "Booking", string.Join(",", bookings.Select(b => b.Id)));
+        audit.EntityId = string.Join(",", bookings.Select(b => b.Id));
+        await _db.SaveChangesAsync();
 
         if (status == BookingStatus.Confirmed)
             await _notifier.SendAsync(userId, NotificationKind.BookingConfirmed,
@@ -143,10 +141,9 @@ public class BookingsController : ControllerBase
             .Select(b => ToResponse(b))
             .ToListAsync();
 
-        return CreatedAtAction(nameof(GetMyBookings), responses);
+        return CreatedAtAction(nameof(GetMyBookings), null, responses);
     }
 
-    // all bookings with optional filters — manager dashboard
     [HttpGet]
     [Authorize(Roles = "FacilityManager")]
     public async Task<ActionResult<List<BookingResponse>>> GetAll(
@@ -176,7 +173,6 @@ public class BookingsController : ControllerBase
         return Ok(bookings);
     }
 
-    // list caller's own bookings
     [HttpGet("mine")]
     public async Task<ActionResult<List<BookingResponse>>> GetMyBookings()
     {
@@ -193,7 +189,6 @@ public class BookingsController : ControllerBase
         return Ok(bookings);
     }
 
-    // FR4 — list pending bookings for manager review
     [HttpGet("pending")]
     [Authorize(Roles = "FacilityManager")]
     public async Task<ActionResult<List<BookingResponse>>> GetPending()
@@ -209,7 +204,6 @@ public class BookingsController : ControllerBase
         return Ok(bookings);
     }
 
-    // FR4 — approve a pending booking
     [HttpPut("{id}/approve")]
     [Authorize(Roles = "FacilityManager")]
     public async Task<ActionResult<BookingResponse>> Approve(int id)
@@ -234,7 +228,6 @@ public class BookingsController : ControllerBase
         return Ok(ToResponse(booking));
     }
 
-    // FR4 — reject a pending booking
     [HttpPut("{id}/reject")]
     [Authorize(Roles = "FacilityManager")]
     public async Task<ActionResult<BookingResponse>> Reject(int id)
@@ -259,7 +252,6 @@ public class BookingsController : ControllerBase
         return Ok(ToResponse(booking));
     }
 
-    // FR5 — cancel a booking (must be > 2 hours before slot start)
     [HttpDelete("{id}")]
     public async Task<IActionResult> Cancel(int id)
     {
@@ -287,7 +279,6 @@ public class BookingsController : ControllerBase
         return NoContent();
     }
 
-    // FR5 — modify a booking (change date and/or time slot, must be > 2 hours before old slot)
     [HttpPut("{id}")]
     public async Task<ActionResult<BookingResponse>> Modify(int id, [FromBody] ModifyBookingRequest request)
     {
@@ -308,7 +299,6 @@ public class BookingsController : ControllerBase
         if (!IsWithinCancellationWindow(booking))
             return BadRequest(new { message = "Modifications must be made at least 2 hours before the slot starts." });
 
-        // conflict check for the new slot
         var conflict = await _db.Bookings.AnyAsync(b =>
             b.FacilityId == booking.FacilityId &&
             b.Date == request.NewDate &&
@@ -329,7 +319,7 @@ public class BookingsController : ControllerBase
         }
         catch (DbUpdateException)
         {
-            return Conflict(new { message = "Slot was booked concurrently. Please try again." });
+            return Conflict(new { message = "Slot already booked." });
         }
 
         await WriteAuditAsync(userId, "BookingModified", "Booking", id.ToString());
@@ -337,10 +327,6 @@ public class BookingsController : ControllerBase
         return Ok(ToResponse(booking));
     }
 
-    /// <summary>
-    /// Returns true if the current time is more than 2 hours before the slot starts (FR5).
-    /// Slot start is derived from Date + TimeSlot hour, treated as UTC.
-    /// </summary>
     private static bool IsWithinCancellationWindow(Booking booking)
     {
         var slotStart = booking.Date.ToDateTime(new TimeOnly(booking.TimeSlot, 0), DateTimeKind.Utc);

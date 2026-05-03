@@ -1,18 +1,11 @@
 using System.Security.Claims;
 using CampusBooking.Api.Data;
-using CampusBooking.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace CampusBooking.Api.Controllers;
 
-/// <summary>
-/// Provides each user's notification inbox (FR6).
-/// The Web app polls this to display banners; the Desktop polls it on a 30-second timer
-/// to show toast popups. Notifications are scoped to the authenticated user —
-/// no user can read another user's inbox.
-/// </summary>
 [ApiController]
 [Route("api/notifications")]
 [Authorize]

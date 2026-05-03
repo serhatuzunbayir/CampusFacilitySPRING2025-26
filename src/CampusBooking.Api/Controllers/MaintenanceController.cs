@@ -1,9 +1,9 @@
 using System.Security.Claims;
 using CampusBooking.Api.Data;
 using CampusBooking.Api.Data.Entities;
-using CampusBooking.Api.Dtos.Maintenance;
 using CampusBooking.Api.Services;
 using CampusBooking.Shared;
+using CampusBooking.Shared.Dtos.Maintenance;
 using CampusBooking.Shared.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,12 +11,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CampusBooking.Api.Controllers;
 
-/// <summary>
-/// Manages the maintenance issue workflow: reporting with photo upload (FR7),
-/// manual assignment to personnel (FR8), status transitions and CSV log export (FR9).
-/// Photos are stored on disk under uploads/maintenance/ with a GUID filename.
-/// Status transitions are validated to enforce Pending → InProgress → Resolved order.
-/// </summary>
 [ApiController]
 [Route("api/maintenance")]
 [Authorize]
@@ -24,43 +18,45 @@ public class MaintenanceController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
-    private readonly NotificationWriter _notifier;
+    private readonly NotificationService _notifier;
 
-    public MaintenanceController(AppDbContext db, IWebHostEnvironment env, NotificationWriter notifier)
+    public MaintenanceController(AppDbContext db, IWebHostEnvironment env, NotificationService notifier)
     {
         _db = db;
         _env = env;
         _notifier = notifier;
     }
 
-    // FR7 — report a maintenance issue with optional photo
     [HttpPost]
     [Authorize(Roles = "Student,Staff")]
     [Consumes("multipart/form-data")]
-    public async Task<ActionResult<MaintenanceIssueResponse>> Create([FromForm] CreateMaintenanceIssueRequest request)
+    public async Task<ActionResult<MaintenanceIssueResponse>> Create(
+        [FromForm] CreateMaintenanceIssueRequest request,
+        [FromForm] IFormFile? Photo)
     {
         var facility = await _db.Facilities.FindAsync(request.FacilityId);
         if (facility is null)
             return NotFound(new { message = "Facility not found." });
 
         string? photoPath = null;
-        if (request.Photo is not null)
+        if (Photo is not null)
         {
             var allowed = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-            var ext = Path.GetExtension(request.Photo.FileName).ToLowerInvariant();
+            var ext = Path.GetExtension(Photo.FileName).ToLowerInvariant();
             if (!allowed.Contains(ext))
-                return BadRequest(new { message = "Only image files are allowed (jpg, png, gif, webp)." });
+                return BadRequest(new { message = "Only image files are allowed." });
 
-            var uploadDir = Path.Combine(_env.ContentRootPath, "uploads", "maintenance");
+            var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+            var uploadDir = Path.Combine(webRoot, "uploads", "maintenance");
             Directory.CreateDirectory(uploadDir);
 
             var fileName = $"{Guid.NewGuid()}{ext}";
             var fullPath = Path.Combine(uploadDir, fileName);
 
             await using var stream = System.IO.File.Create(fullPath);
-            await request.Photo.CopyToAsync(stream);
+            await Photo.CopyToAsync(stream);
 
-            photoPath = Path.Combine("uploads", "maintenance", fileName);
+            photoPath = Path.Combine("uploads", "maintenance", fileName).Replace('\\', '/');
         }
 
         var reporterId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
@@ -83,7 +79,6 @@ public class MaintenanceController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = issue.Id }, await ToResponseAsync(issue.Id));
     }
 
-    // FR8 — list all open issues (FacilityManager) or own issues (others)
     [HttpGet]
     public async Task<ActionResult<List<MaintenanceIssueResponse>>> GetAll([FromQuery] MaintenanceStatus? status = null)
     {
@@ -123,11 +118,12 @@ public class MaintenanceController : ControllerBase
             return Forbid();
 
         if (string.IsNullOrEmpty(issue.PhotoPath))
-            return NotFound(new { message = "This issue has no photo." });
+            return NotFound(new { message = "No photo." });
 
-        var fullPath = Path.Combine(_env.ContentRootPath, issue.PhotoPath);
+        var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+        var fullPath = Path.Combine(webRoot, issue.PhotoPath.Replace('/', Path.DirectorySeparatorChar));
         if (!System.IO.File.Exists(fullPath))
-            return NotFound(new { message = "Photo file not found on server." });
+            return NotFound(new { message = "Photo file missing." });
 
         var contentType = Path.GetExtension(fullPath).ToLowerInvariant() switch
         {
@@ -163,7 +159,6 @@ public class MaintenanceController : ControllerBase
         return Ok(ToResponse(issue));
     }
 
-    // FR8 — assign issue to maintenance personnel
     [HttpPut("{id}/assign")]
     [Authorize(Roles = "FacilityManager")]
     public async Task<ActionResult<MaintenanceIssueResponse>> Assign(int id, [FromBody] AssignMaintenanceRequest request)
@@ -186,7 +181,7 @@ public class MaintenanceController : ControllerBase
             .AnyAsync(x => x.UserId == request.AssigneeId && x.Name == nameof(UserRole.MaintenancePersonnel));
 
         if (!isPersonnel)
-            return BadRequest(new { message = "Assignee must have the MaintenancePersonnel role." });
+            return BadRequest(new { message = "Assignee must be MaintenancePersonnel." });
 
         var managerId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
@@ -208,7 +203,6 @@ public class MaintenanceController : ControllerBase
         return Ok(ToResponse(issue));
     }
 
-    // FR9 — update task status (Pending → InProgress → Resolved)
     [HttpPut("{id}/status")]
     [Authorize(Roles = "MaintenancePersonnel")]
     public async Task<ActionResult<MaintenanceIssueResponse>> UpdateStatus(int id, [FromBody] UpdateStatusRequest request)
@@ -250,7 +244,6 @@ public class MaintenanceController : ControllerBase
         return Ok(ToResponse(issue));
     }
 
-    // FR9 — filtered maintenance log with optional CSV export
     [HttpGet("logs")]
     [Authorize(Roles = "FacilityManager")]
     public async Task<IActionResult> GetLogs(
@@ -291,11 +284,6 @@ public class MaintenanceController : ControllerBase
         return Ok(issues.Select(ToResponse).ToList());
     }
 
-    /// <summary>
-    /// Writes the issue list to a temp file using FileStream (FR9 requirement),
-    /// reads the bytes back, deletes the temp file, and returns the CSV as a download.
-    /// Fields containing commas or quotes are escaped per RFC 4180.
-    /// </summary>
     private static async Task<FileContentResult> BuildCsvAsync(List<MaintenanceIssue> issues)
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"maintenance-log-{Guid.NewGuid()}.csv");

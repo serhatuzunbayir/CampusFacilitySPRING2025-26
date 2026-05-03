@@ -2,161 +2,171 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CampusBooking.Desktop.Models;
+using CampusBooking.Shared.Dtos.Auth;
+using CampusBooking.Shared.Dtos.Bookings;
+using CampusBooking.Shared.Dtos.Facilities;
+using CampusBooking.Shared.Dtos.Maintenance;
+using CampusBooking.Shared.Dtos.Users;
 
 namespace CampusBooking.Desktop.Services;
 
-/// <summary>
-/// Thin wrapper around HttpClient that communicates with the CampusBooking REST API.
-/// All GET methods use GetAsync + status check instead of GetFromJsonAsync so that
-/// non-2xx responses (401, 403, 404...) return an empty list instead of throwing.
-/// </summary>
 public class ApiClient
 {
     private readonly HttpClient _http;
+    private readonly UserSession _session;
 
-    /// <summary>
-    /// JSON options: case-insensitive property matching and enums as strings.
-    /// </summary>
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() }
     };
 
-    /// <param name="baseUrl">Full base URL of the running API, e.g. http://localhost:5279/</param>
-    public ApiClient(string baseUrl)
+    public ApiClient(HttpClient http, UserSession session)
     {
-        // Accept self-signed dev certificates so the desktop works out-of-the-box
-        var handler = new HttpClientHandler
+        _http = http;
+        _session = session;
+    }
+
+    private void AttachToken(HttpRequestMessage req)
+    {
+        if (!string.IsNullOrEmpty(_session.Token))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _session.Token);
+    }
+
+    private async Task<T> SendAsync<T>(HttpMethod method, string url, object? body = null)
+    {
+        using var req = new HttpRequestMessage(method, url);
+        AttachToken(req);
+        if (body is not null)
+            req.Content = JsonContent.Create(body, options: JsonOpts);
+
+        using var res = await _http.SendAsync(req);
+        await EnsureOk(res);
+
+        if (typeof(T) == typeof(EmptyResult))
+            return (T)(object)new EmptyResult();
+
+        var result = await res.Content.ReadFromJsonAsync<T>(JsonOpts);
+        return result ?? throw new ApiException(res.StatusCode, "Empty response body.");
+    }
+
+    private async Task SendAsync(HttpMethod method, string url, object? body = null)
+    {
+        using var req = new HttpRequestMessage(method, url);
+        AttachToken(req);
+        if (body is not null)
+            req.Content = JsonContent.Create(body, options: JsonOpts);
+
+        using var res = await _http.SendAsync(req);
+        await EnsureOk(res);
+    }
+
+    private static async Task EnsureOk(HttpResponseMessage res)
+    {
+        if (res.IsSuccessStatusCode) return;
+        string message;
+        try
         {
-            ServerCertificateCustomValidationCallback =
-                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-        };
-        _http = new HttpClient(handler) { BaseAddress = new Uri(baseUrl) };
+            var body = await res.Content.ReadAsStringAsync();
+            message = string.IsNullOrWhiteSpace(body) ? res.ReasonPhrase ?? "Request failed." : body;
+        }
+        catch
+        {
+            message = res.ReasonPhrase ?? "Request failed.";
+        }
+        throw new ApiException(res.StatusCode, message);
     }
 
-    /// <summary>Attaches the JWT bearer token to every subsequent request.</summary>
-    public void SetToken(string token)
-        => _http.DefaultRequestHeaders.Authorization =
-               new AuthenticationHeaderValue("Bearer", token);
+    public Task<LoginResponse> LoginAsync(LoginRequest req)
+        => SendAsync<LoginResponse>(HttpMethod.Post, "api/auth/login", req);
 
-    // ── Helper ───────────────────────────────────────────────────────────────
+    public Task ChangePasswordAsync(ChangePasswordRequest req)
+        => SendAsync(HttpMethod.Post, "api/auth/change-password", req);
 
-    /// <summary>
-    /// Sends a GET request and deserialises the JSON body.
-    /// Returns an empty list on any non-2xx response instead of throwing.
-    /// </summary>
-    private async Task<List<T>> GetListAsync<T>(string url)
-    {
-        var res = await _http.GetAsync(url);
-        if (!res.IsSuccessStatusCode) return new List<T>();
-        return await res.Content.ReadFromJsonAsync<List<T>>(JsonOpts) ?? new List<T>();
-    }
+    public Task<List<FacilityTypeResponse>> GetFacilityTypesAsync()
+        => SendAsync<List<FacilityTypeResponse>>(HttpMethod.Get, "api/facility-types");
 
-    // ── Auth ─────────────────────────────────────────────────────────────────
+    public Task<List<FacilityResponse>> GetFacilitiesAsync(bool includeInactive = false)
+        => SendAsync<List<FacilityResponse>>(HttpMethod.Get, $"api/facilities?includeInactive={includeInactive}");
 
-    /// <summary>Calls POST /api/auth/login. Returns null on invalid credentials.</summary>
-    public async Task<LoginResponse?> LoginAsync(string email, string password)
-    {
-        var res = await _http.PostAsJsonAsync("api/auth/login", new { email, password });
-        if (!res.IsSuccessStatusCode) return null;
-        return await res.Content.ReadFromJsonAsync<LoginResponse>(JsonOpts);
-    }
+    public Task<FacilityResponse> CreateFacilityAsync(CreateFacilityRequest req)
+        => SendAsync<FacilityResponse>(HttpMethod.Post, "api/facilities", req);
 
-    // ── Facility Types ────────────────────────────────────────────────────────
+    public Task DeactivateFacilityAsync(int id)
+        => SendAsync(HttpMethod.Delete, $"api/facilities/{id}");
 
-    /// <summary>Returns all facility types (e.g. Lab, Classroom).</summary>
-    public Task<List<FacilityTypeDto>> GetFacilityTypesAsync()
-        => GetListAsync<FacilityTypeDto>("api/facility-types");
+    public Task<List<BookingResponse>> GetMyBookingsAsync()
+        => SendAsync<List<BookingResponse>>(HttpMethod.Get, "api/bookings/mine");
 
-    // ── Facilities ────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Returns facilities. Managers can pass includeInactive = true to see
-    /// deactivated facilities as well.
-    /// </summary>
-    public Task<List<FacilityDto>> GetFacilitiesAsync(bool includeInactive = false)
-        => GetListAsync<FacilityDto>($"api/facilities?includeInactive={includeInactive}");
-
-    /// <summary>Creates a new facility. Returns true on success.</summary>
-    public async Task<bool> CreateFacilityAsync(string name, int facilityTypeId, int capacity, string location)
-    {
-        var res = await _http.PostAsJsonAsync("api/facilities",
-            new { name, facilityTypeId, capacity, location });
-        return res.IsSuccessStatusCode;
-    }
-
-    /// <summary>Soft-deletes (deactivates) a facility. Returns true on success.</summary>
-    public async Task<bool> DeactivateFacilityAsync(int id)
-        => (await _http.DeleteAsync($"api/facilities/{id}")).IsSuccessStatusCode;
-
-    // ── Bookings ──────────────────────────────────────────────────────────────
-
-    /// <summary>Returns the logged-in user's own bookings.</summary>
-    public Task<List<BookingDto>> GetMyBookingsAsync()
-        => GetListAsync<BookingDto>("api/bookings/mine");
-
-    /// <summary>
-    /// Returns all bookings visible to a FacilityManager.
-    /// Supports optional filtering by facility and date.
-    /// </summary>
-    public Task<List<BookingDto>> GetAllBookingsAsync(int? facilityId = null, DateOnly? date = null)
+    public Task<List<BookingResponse>> GetAllBookingsAsync(int? facilityId = null, DateOnly? date = null)
     {
         var qs = new List<string>();
         if (facilityId.HasValue) qs.Add($"facilityId={facilityId}");
-        if (date.HasValue)       qs.Add($"date={date.Value:yyyy-MM-dd}");
+        if (date.HasValue) qs.Add($"date={date.Value:yyyy-MM-dd}");
         var url = "api/bookings" + (qs.Count > 0 ? "?" + string.Join("&", qs) : "");
-        return GetListAsync<BookingDto>(url);
+        return SendAsync<List<BookingResponse>>(HttpMethod.Get, url);
     }
 
-    /// <summary>Returns all bookings awaiting manager approval.</summary>
-    public Task<List<BookingDto>> GetPendingBookingsAsync()
-        => GetListAsync<BookingDto>("api/bookings/pending");
+    public Task<List<BookingResponse>> GetPendingBookingsAsync()
+        => SendAsync<List<BookingResponse>>(HttpMethod.Get, "api/bookings/pending");
 
-    /// <summary>Searches for facilities available on a specific date and time slot.</summary>
-    public Task<List<FacilityDto>> GetAvailabilityAsync(DateOnly date, int timeSlot, int? facilityTypeId = null)
+    public Task<List<FacilityResponse>> GetAvailabilityAsync(DateOnly date, int timeSlot, int? facilityTypeId = null)
     {
         var url = $"api/bookings/availability?date={date:yyyy-MM-dd}&timeSlot={timeSlot}";
         if (facilityTypeId.HasValue) url += $"&facilityTypeId={facilityTypeId}";
-        return GetListAsync<FacilityDto>(url);
+        return SendAsync<List<FacilityResponse>>(HttpMethod.Get, url);
     }
 
-    /// <summary>Creates a booking for the given facility, date and time slots.</summary>
-    public async Task<(bool ok, string error)> CreateBookingAsync(int facilityId, DateOnly date, int[] timeSlots)
-    {
-        var res = await _http.PostAsJsonAsync("api/bookings",
-            new { facilityId, date, timeSlots });
-        if (res.IsSuccessStatusCode) return (true, string.Empty);
-        var body = await res.Content.ReadAsStringAsync();
-        return (false, body);
-    }
+    public Task<BookingResponse> CreateBookingAsync(CreateBookingRequest req)
+        => SendAsync<BookingResponse>(HttpMethod.Post, "api/bookings", req);
 
-    /// <summary>Cancels a booking. Returns true on success.</summary>
-    public async Task<bool> CancelBookingAsync(int id)
-        => (await _http.DeleteAsync($"api/bookings/{id}")).IsSuccessStatusCode;
+    public Task CancelBookingAsync(int id)
+        => SendAsync(HttpMethod.Delete, $"api/bookings/{id}");
 
-    /// <summary>Approves a pending booking (manager only).</summary>
-    public async Task<bool> ApproveBookingAsync(int id)
-        => (await _http.PutAsync($"api/bookings/{id}/approve", null)).IsSuccessStatusCode;
+    public Task ApproveBookingAsync(int id)
+        => SendAsync(HttpMethod.Put, $"api/bookings/{id}/approve");
 
-    /// <summary>Rejects a pending booking (manager only).</summary>
-    public async Task<bool> RejectBookingAsync(int id)
-        => (await _http.PutAsync($"api/bookings/{id}/reject", null)).IsSuccessStatusCode;
+    public Task RejectBookingAsync(int id)
+        => SendAsync(HttpMethod.Put, $"api/bookings/{id}/reject");
 
-    // ── Notifications ─────────────────────────────────────────────────────────
+    public Task<List<NotificationItem>> GetUnreadNotificationsAsync()
+        => SendAsync<List<NotificationItem>>(HttpMethod.Get, "api/notifications/unread");
 
-    /// <summary>Returns the current user's notification inbox.</summary>
-    public Task<List<NotificationDto>> GetNotificationsAsync(bool unreadOnly = false)
-        => GetListAsync<NotificationDto>($"api/notifications?unreadOnly={unreadOnly}");
+    public Task<List<NotificationItem>> GetNotificationsAsync(bool unreadOnly = false)
+        => SendAsync<List<NotificationItem>>(HttpMethod.Get, $"api/notifications?unreadOnly={unreadOnly}");
 
-    /// <summary>Marks all unread notifications as read.</summary>
-    public async Task MarkAllReadAsync()
-        => await _http.PutAsync("api/notifications/read-all", null);
+    public Task MarkAllReadAsync()
+        => SendAsync(HttpMethod.Put, "api/notifications/read-all");
 
-    // ── Maintenance ───────────────────────────────────────────────────────────
+    public Task<List<MaintenanceIssueResponse>> GetMaintenanceIssuesAsync()
+        => SendAsync<List<MaintenanceIssueResponse>>(HttpMethod.Get, "api/maintenance");
 
-    /// <summary>Returns maintenance issues visible to the current user.</summary>
-    public Task<List<MaintenanceIssueDto>> GetMaintenanceIssuesAsync()
-        => GetListAsync<MaintenanceIssueDto>("api/maintenance");
+    public Task<MaintenanceIssueResponse> CreateMaintenanceIssueAsync(CreateMaintenanceIssueRequest req)
+        => SendAsync<MaintenanceIssueResponse>(HttpMethod.Post, "api/maintenance", req);
+
+    public Task AssignMaintenanceAsync(int id, AssignMaintenanceRequest req)
+        => SendAsync(HttpMethod.Put, $"api/maintenance/{id}/assign", req);
+
+    public Task UpdateMaintenanceStatusAsync(int id, UpdateStatusRequest req)
+        => SendAsync(HttpMethod.Put, $"api/maintenance/{id}/status", req);
+
+    public Task<List<UserResponse>> GetUsersAsync()
+        => SendAsync<List<UserResponse>>(HttpMethod.Get, "api/users");
+
+    public Task<UserResponse> CreateUserAsync(CreateUserRequest req)
+        => SendAsync<UserResponse>(HttpMethod.Post, "api/users", req);
+
+    public Task UpdateUserAsync(string id, UpdateUserRequest req)
+        => SendAsync(HttpMethod.Put, $"api/users/{id}", req);
+
+    private sealed class EmptyResult { }
+}
+
+public class NotificationItem
+{
+    public int Id { get; set; }
+    public string Kind { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public bool IsRead { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
 }

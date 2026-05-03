@@ -46,9 +46,6 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // NFR3: prevent double-booking the same facility/date/slot.
-            // Cancelled and Rejected bookings are hard-deleted so the slot is freed;
-            // history is retained in AuditLogs.
             e.HasIndex(x => new { x.FacilityId, x.Date, x.TimeSlot }).IsUnique();
         });
 
