@@ -21,6 +21,7 @@ static class Program
         Application.SetHighDpiMode(HighDpiMode.SystemAware);
 
         var host = Host.CreateDefaultBuilder()
+            .UseContentRoot(AppContext.BaseDirectory)
             .ConfigureAppConfiguration(c => c.AddJsonFile("appsettings.json", optional: false))
             .ConfigureServices((ctx, services) =>
             {

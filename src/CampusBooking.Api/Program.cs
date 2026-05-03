@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using CampusBooking.Api.Data;
 using CampusBooking.Api.Data.Entities;
 using CampusBooking.Api.Services;
@@ -49,7 +50,8 @@ builder.Services.AddAuthorization();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<NotificationService>();
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
