@@ -1,0 +1,50 @@
+@model CampusBooking.Web.Models.AvailabilitySearchViewModel
+
+<h2>Availability Search</h2>
+
+<form method="post">
+    <div class="mb-3">
+        <label>Date</label>
+        <input class="form-control" type="date" name="Date" value="@Model.Date" />
+    </div>
+
+    <div class="mb-3">
+        <label>Time Slot</label>
+        <input class="form-control" type="number" name="TimeSlot" min="8" max="19" value="@Model.TimeSlot" />
+        <small>Time slot must be between 8 and 19.</small>
+    </div>
+
+    <div class="mb-3">
+        <label>Minimum Capacity</label>
+        <input class="form-control" type="number" name="MinCapacity" value="@Model.MinCapacity" />
+    </div>
+
+    <button class="btn btn-primary" type="submit">Search</button>
+</form>
+
+@if (ViewBag.Error != null){
+    <p style="color:red">@ViewBag.Error</p>
+}
+
+<hr />
+
+@if (Model.Results != null && Model.Results.Count > 0){
+    <h3>Available Facilities</h3>
+
+    <div class="row">
+        @foreach (var facility in Model.Results){
+            <div class="col-md-4">
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5>@facility.Name</h5>
+                        <p>Capacity: @facility.Capacity</p>
+                        <p>Location: @facility.Location</p>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+    
+}else{
+    <p>No available facilities found.</p>
+}
