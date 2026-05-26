@@ -1,0 +1,21 @@
+@model List<CampusBooking.Web.Models.Facility>
+
+<h2>Facilities</h2>
+
+@if (Model == null || Model.Count == 0){
+    <p>No facilities found.</p>
+}else{
+    <div class="row">
+        @foreach (var facility in Model){
+            <div class="col-md-4">
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5>@facility.Name</h5>
+                        <p>Capacity: @facility.Capacity</p>
+                        <p>Location: @facility.Location</p>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
