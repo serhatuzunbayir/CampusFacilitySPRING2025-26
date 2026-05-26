@@ -1,0 +1,42 @@
+@model CampusBooking.Web.Models.MaintenanceCreateViewModel
+
+<h2>Create Maintenance Issue</h2>
+
+<form method="post">
+
+    <div class="mb-3">
+    <label class="form-label">Facility</label>
+
+    <select asp-for="FacilityId" class="form-select">
+        <option value="">Select Facility</option>
+
+        @foreach (var facility in Model.Facilities){
+            <option value="@facility.Id">
+                @facility.Name
+            </option>
+        }
+    </select>
+</div>
+
+    <div class="mb-3">
+        <label class="form-label">Description</label>
+        <textarea asp-for="Description" class="form-control"></textarea>
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+        Submit Issue
+    </button>
+
+</form>
+
+@if (!string.IsNullOrEmpty(Model.Message)){
+    if (Model.Message.Contains("successfully")){
+        <div class="alert alert-success mt-3">
+            @Model.Message
+        </div>
+    }else{
+        <div class="alert alert-danger mt-3">
+            @Model.Message
+        </div>
+    }
+}
