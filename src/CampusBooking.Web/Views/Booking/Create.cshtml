@@ -1,0 +1,51 @@
+@model CampusBooking.Web.Models.BookingCreateViewModel
+
+<h2>Create Booking</h2>
+
+<form method="post">
+    <div class="mb-3">
+
+    <label class="form-label">
+        Facility
+    </label>
+
+    <select asp-for="FacilityId" class="form-select">
+
+        <option value="">
+            Select Facility
+        </option>
+
+        @foreach (var facility in Model.Facilities){
+            <option value="@facility.Id">
+                @facility.Name
+            </option>
+        }
+
+    </select>
+
+</div>
+
+    <div class="mb-3">
+        <label>Date</label>
+        <input class="form-control" type="date" name="Date" value="@Model.Date" />
+    </div>
+
+    <div class="mb-3">
+        <label>Time Slot</label>
+        <input class="form-control" type="number" name="TimeSlot" min="8" max="19" value="@Model.TimeSlot" />
+    </div>
+
+    <button class="btn btn-primary" type="submit">Create Booking</button>
+</form>
+
+@if (!string.IsNullOrEmpty(Model.Message)){
+    if (Model.Message.Contains("successfully")){
+        <div class="alert alert-success mt-3">
+            @Model.Message
+        </div>
+    }else{
+        <div class="alert alert-danger mt-3">
+            @Model.Message
+        </div>
+    }
+}
